@@ -1,0 +1,18 @@
+{
+  "vault_path": "/Users/kushan/Obsidian Vaults/Kush-Personal-Sync",
+  "case_studies_path": "🎯 PM Craft/Case Studies",
+  "categories": ["AI PM", "AI Update", "Getting a PM Job", "Product Growth Podcast", "Lenny's Podcast"],
+  "model": "claude-haiku-4-5-20251001",
+  "feeds": [
+    {
+      "name": "Product Growth",
+      "url": "https://www.news.aakashg.com/feed",
+      "seen_file": "seen_product_growth.json"
+    },
+    {
+      "name": "Lenny's Newsletter",
+      "url": "https://www.lennysnewsletter.com/feed",
+      "seen_file": "seen_lennys.json"
+    }
+  ]
+}
