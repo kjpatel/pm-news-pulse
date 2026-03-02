@@ -102,21 +102,21 @@ The digest arrives as a styled email with:
 
 | # | Feed | Author |
 |---|------|--------|
-| 1 | Product Growth | Aakash Gupta |
-| 2 | Lenny's Newsletter | Lenny Rachitsky |
-| 3 | Product Compass | Pawel Huryn |
-| 4 | The Looking Glass | Julie Zhuo |
-| 5 | Brian Balfour | Brian Balfour |
-| 6 | Shreyas Doshi | Shreyas Doshi |
-| 7 | Elena's Growth Scoop | Elena Verna |
-| 8 | The Beautiful Mess | John Cutler |
-| 9 | Perspectives | Deb Liu |
-| 10 | Department of Product | Rich Holmes |
-| 11 | Casey Accidental | Casey Winters |
-| 12 | Wes Kao | Wes Kao |
-| 13 | SVPG | Marty Cagan |
-| 14 | Itamar Gilad | Itamar Gilad |
-| 15 | Stratechery | Ben Thompson |
+| 1 | [Product Growth](https://www.news.aakashg.com) | Aakash Gupta |
+| 2 | [Lenny's Newsletter](https://www.lennysnewsletter.com) | Lenny Rachitsky |
+| 3 | [Product Compass](https://www.productcompass.pm) | Pawel Huryn |
+| 4 | [The Looking Glass](https://lg.substack.com) | Julie Zhuo |
+| 5 | [Brian Balfour](https://blog.brianbalfour.com) | Brian Balfour |
+| 6 | [Shreyas Doshi](https://shreyasdoshi.substack.com) | Shreyas Doshi |
+| 7 | [Elena's Growth Scoop](https://www.elenaverna.com) | Elena Verna |
+| 8 | [The Beautiful Mess](https://cutlefish.substack.com) | John Cutler |
+| 9 | [Perspectives](https://debliu.substack.com) | Deb Liu |
+| 10 | [Department of Product](https://departmentofproduct.substack.com) | Rich Holmes |
+| 11 | [Casey Accidental](https://www.caseyaccidental.com) | Casey Winters |
+| 12 | [Wes Kao](https://newsletter.weskao.com) | Wes Kao |
+| 13 | [SVPG](https://www.svpg.com) | Marty Cagan |
+| 14 | [Itamar Gilad](https://itamargilad.com) | Itamar Gilad |
+| 15 | [Stratechery](https://stratechery.com) | Ben Thompson |
 
 ## Setup
 
