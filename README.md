@@ -1,6 +1,6 @@
 # PM Newsletter Auto-Ingest
 
-Automatically fetches new articles from 15 PM newsletters, generates AI-powered summaries and key takeaways using Claude, writes them as organized notes to your Obsidian vault, and delivers a ranked weekly email digest.
+Automatically fetches new articles from 20 PM and VC newsletters, generates AI-powered summaries and key takeaways using Claude, writes them as organized notes to your Obsidian vault, and delivers a ranked weekly email digest.
 
 Built for product managers who want to stay on top of industry content without the manual effort of reading, summarizing, and filing every article.
 
@@ -11,7 +11,7 @@ Built for product managers who want to stay on top of industry content without t
                   │         Daily: ingest.py             │
                   │                                      │
   RSS Feeds ──►   │  Fetch Article ──► Claude AI ──►     │  ──► Obsidian Notes
-  (15 sources)    │                    Summary +         │
+  (20 sources)    │                    Summary +         │
                   │                    Takeaways         │
                   └─────────────────────────────────────┘
 
@@ -25,7 +25,7 @@ Built for product managers who want to stay on top of industry content without t
 
 ### Article Ingestion (`ingest.py`)
 
-1. Parses RSS feeds from 15 configured newsletters
+1. Parses RSS feeds from 20 configured newsletters
 2. Detects new articles by comparing against per-feed seen trackers
 3. Fetches the full article content (not just the RSS excerpt)
 4. Calls Claude to generate a structured summary, key takeaways, author attribution, and cross-links to existing notes
@@ -117,6 +117,11 @@ The digest arrives as a styled email with:
 | 13 | [SVPG](https://www.svpg.com) | Marty Cagan |
 | 14 | [Itamar Gilad](https://itamargilad.com) | Itamar Gilad |
 | 15 | [Stratechery](https://stratechery.com) | Ben Thompson |
+| 16 | [Sequoia Capital](https://sequoiacap.com) | Sequoia Capital |
+| 17 | [Both Sides of the Table](https://bothsidesofthetable.com) | Mark Suster |
+| 18 | [Feld Thoughts](https://feld.com) | Brad Feld |
+| 19 | [Hunter Walk](https://hunterwalk.com) | Hunter Walk |
+| 20 | [Tomasz Tunguz](https://tomtunguz.com) | Tomasz Tunguz |
 
 ## Setup
 
