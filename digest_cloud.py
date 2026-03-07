@@ -25,6 +25,7 @@ from bs4 import BeautifulSoup
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_PATH = SCRIPT_DIR / "config.json"
+NOTES_DIR = SCRIPT_DIR / "notes"
 ENV_PATH = SCRIPT_DIR / ".env"
 
 # Load .env file if it exists (local development only)
@@ -505,6 +506,14 @@ def main():
     week_end = today.strftime("%b %d, %Y")
 
     digest_content = format_digest(articles, ranking, week_start, week_end, feeds)
+
+    # Save digest as markdown note
+    digest_dir = NOTES_DIR / "Digests"
+    digest_dir.mkdir(parents=True, exist_ok=True)
+    digest_date = today.strftime("%Y-%m-%d")
+    digest_path = digest_dir / f"{digest_date} Weekly PM Digest.md"
+    digest_path.write_text(digest_content, encoding="utf-8")
+    log.info(f"Saved digest: {digest_path.relative_to(SCRIPT_DIR)}")
 
     # Send email
     send_digest_email(config, digest_content, week_end)

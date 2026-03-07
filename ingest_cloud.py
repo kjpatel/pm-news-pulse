@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-PM Newsletter -> Obsidian Ingestion Script
+PM Newsletter -> Cloud Ingestion Script
 
-Fetches new articles from multiple PM newsletter RSS feeds, generates AI
-summaries via Claude API, and writes them as notes to the Obsidian vault.
+Fetches new articles from PM newsletter RSS feeds, generates AI summaries
+via Claude API, and writes them as markdown notes to the repo's notes/
+directory. Designed to run in GitHub Actions.
+
+The local sync script (sync_to_vault.sh) copies these notes into the
+Obsidian vault on the user's machine.
 """
 
 import json
@@ -21,9 +25,10 @@ from bs4 import BeautifulSoup
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_PATH = SCRIPT_DIR / "config.json"
+NOTES_DIR = SCRIPT_DIR / "notes"
 ENV_PATH = SCRIPT_DIR / ".env"
 
-# Load .env file if it exists
+# Load .env file if it exists (local dev; in CI, env vars are injected)
 if ENV_PATH.exists():
     for line in ENV_PATH.read_text().splitlines():
         line = line.strip()
@@ -100,7 +105,6 @@ def fetch_article_content(url: str) -> str:
     # Substack articles use .body.markup for main content
     content_div = soup.select_one(".body.markup") or soup.select_one("article") or soup.select_one(".post-content")
     if content_div:
-        # Remove script/style tags
         for tag in content_div.find_all(["script", "style", "nav", "footer"]):
             tag.decompose()
         text = content_div.get_text(separator="\n", strip=True)
@@ -114,22 +118,19 @@ def fetch_article_content(url: str) -> str:
     return text
 
 
-def get_existing_notes(vault_path: str, case_studies_path: str) -> list[str]:
-    """Scan existing Case Studies notes to suggest cross-links."""
-    cs_dir = Path(vault_path) / case_studies_path
+def get_existing_notes() -> list[str]:
+    """Scan existing notes in the repo's notes/ directory for cross-links."""
     notes = []
-    if cs_dir.exists():
-        for md_file in cs_dir.rglob("*.md"):
+    if NOTES_DIR.exists():
+        for md_file in NOTES_DIR.rglob("*.md"):
             notes.append(md_file.stem)
     return notes
 
 
 def sanitize_filename(title: str) -> str:
     """Clean title for use as filename."""
-    # Remove or replace problematic characters
     cleaned = re.sub(r'[<>:"/\\|?*]', "", title)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    # Limit length
     if len(cleaned) > 80:
         cleaned = cleaned[:80].rsplit(" ", 1)[0]
     return cleaned
@@ -221,7 +222,6 @@ def process_feed(
     config: dict,
     client: anthropic.Anthropic,
     existing_notes: list[str],
-    vault_cs: Path,
 ) -> int:
     """Process a single feed. Returns number of articles processed."""
     feed_name = feed_config["name"]
@@ -260,8 +260,8 @@ def process_feed(
                 existing_notes=existing_notes,
             )
 
-            # Determine output path — one directory per feed
-            feed_dir = vault_cs / feed_name
+            # Write to notes/ directory within the repo
+            feed_dir = NOTES_DIR / feed_name
             feed_dir.mkdir(parents=True, exist_ok=True)
 
             date_prefix = article.get("published_iso", "")
@@ -269,7 +269,6 @@ def process_feed(
             filename = f"{date_prefix} {title_part}.md" if date_prefix else f"{title_part}.md"
             note_path = feed_dir / filename
 
-            # Write note
             note_content = format_note(
                 title=article["title"],
                 url=article["url"],
@@ -278,7 +277,7 @@ def process_feed(
                 result=result,
             )
             note_path.write_text(note_content, encoding="utf-8")
-            log.info(f"Wrote: {note_path.relative_to(Path(config['vault_path']))}")
+            log.info(f"Wrote: {note_path.relative_to(SCRIPT_DIR)}")
 
             # Track as seen
             seen_urls.append(article["url"])
@@ -296,14 +295,12 @@ def process_feed(
 def main():
     config = load_config()
 
-    # Check for API key
     if not os.environ.get("ANTHROPIC_API_KEY"):
         log.error("ANTHROPIC_API_KEY environment variable not set")
         sys.exit(1)
 
     client = anthropic.Anthropic()
 
-    # Backwards compat: support old single-feed config
     feeds = config.get("feeds")
     if not feeds:
         feeds = [{
@@ -312,13 +309,12 @@ def main():
             "seen_file": "seen_articles.json",
         }]
 
-    # Get existing notes for cross-linking
-    existing_notes = get_existing_notes(config["vault_path"], config["case_studies_path"])
-    vault_cs = Path(config["vault_path"]) / config["case_studies_path"]
+    # Get existing notes from the repo's notes/ directory for cross-linking
+    existing_notes = get_existing_notes()
 
     total_processed = 0
     for feed_config in feeds:
-        processed = process_feed(feed_config, config, client, existing_notes, vault_cs)
+        processed = process_feed(feed_config, config, client, existing_notes)
         total_processed += processed
 
     log.info(f"Done. Processed {total_processed} new article(s) across {len(feeds)} feed(s)")

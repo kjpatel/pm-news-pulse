@@ -1,46 +1,66 @@
 # PM Newsletter Auto-Ingest
 
-Automatically fetches new articles from 20 PM and VC newsletters, generates AI-powered summaries and key takeaways using Claude, writes them as organized notes to your Obsidian vault, and delivers a ranked weekly email digest.
+Automatically fetches new articles from 20 PM and VC newsletters, generates AI-powered summaries and key takeaways using Claude, and delivers them as organized Obsidian notes and a ranked weekly email digest.
 
 Built for product managers who want to stay on top of industry content without the manual effort of reading, summarizing, and filing every article.
 
 ## How It Works
 
+Everything runs in the cloud via GitHub Actions — no local machine dependency.
+
 ```
                   ┌─────────────────────────────────────┐
-                  │         Daily: ingest.py            │
-                  │                                     │
-  RSS Feeds ──►   │  Fetch Article ──► Claude AI ──►    │  ──► Obsidian Notes
-  (20 sources)    │                    Summary +        │
-                  │                    Takeaways        │
+                  │   Daily: ingest_cloud.py             │
+                  │   (GitHub Actions, 8am ET)           │
+  RSS Feeds ──►   │  Fetch Article ──► Claude AI ──►     │  ──► notes/ in repo
+  (20 sources)    │                    Summary +         │
+                  │                    Takeaways         │
+                  └─────────────────────────────────────┘
+                                    │
+                                    ▼
+                  ┌─────────────────────────────────────┐
+                  │   Local: sync_to_vault.sh            │
+                  │   (launchd, daily + on wake)         │
+                  │  git pull ──► rsync to Obsidian      │
                   └─────────────────────────────────────┘
 
                   ┌─────────────────────────────────────┐
-                  │    Weekly: digest_cloud.py          │
-                  │    (GitHub Actions)                 │
-  RSS Feeds ──►   │  Fetch + Summarize ──► Claude AI    │  ──► Email Digest
-  (20 sources)    │                        Ranking      │
+                  │   Weekly: digest_cloud.py            │
+                  │   (GitHub Actions, Sat 9am ET)       │
+  RSS Feeds ──►   │  Fetch + Summarize ──► Claude AI     │  ──► Email Digest
+  (20 sources)    │                        Ranking       │  ──► notes/Digests/
                   └─────────────────────────────────────┘
 ```
 
-### Article Ingestion (`ingest.py`)
+### Daily Article Ingestion (`ingest_cloud.py`)
+
+Runs daily at 8am ET via GitHub Actions:
 
 1. Parses RSS feeds from 20 configured newsletters
-2. Detects new articles by comparing against per-feed seen trackers
-3. Fetches the full article content (not just the RSS excerpt)
+2. Detects new articles by comparing against per-feed seen trackers (`seen_*.json`)
+3. Fetches full article content (not just the RSS excerpt)
 4. Calls Claude to generate a structured summary, key takeaways, author attribution, and cross-links to existing notes
-5. Writes a formatted markdown note to the appropriate Obsidian vault folder
-6. Tracks processed articles to prevent duplicates
+5. Writes formatted markdown notes to `notes/{Feed Name}/` in the repo
+6. Commits updated notes and seen trackers back to the repo
 
 ### Weekly Digest (`digest_cloud.py`)
 
-Runs in GitHub Actions with no local dependencies:
+Runs Saturdays at 9am ET via GitHub Actions:
 
 1. Fetches all 20 RSS feeds and filters to articles from the past 7 days
 2. Fetches full article content and generates summaries via Claude
 3. Ranks all articles by strategic relevance
-4. Sends a styled HTML digest email via Resend
-5. Runs automatically every Saturday via GitHub Actions cron
+4. Saves the digest as a markdown note in `notes/Digests/`
+5. Sends a styled HTML digest email via Resend
+
+### Local Vault Sync (`sync_to_vault.sh`)
+
+A lightweight launchd agent that runs daily at 9am and on login/wake:
+
+1. Pulls the latest from GitHub
+2. Rsyncs new notes into the Obsidian vault
+
+This ensures notes appear in Obsidian even if your Mac was asleep when the cloud ingest ran.
 
 ## AI Features
 
@@ -64,41 +84,6 @@ The weekly digest uses Claude to rank articles by relevance to a VP of Product a
 5. Strategic roadmapping
 
 Each article receives a relevance phrase explaining why it matters, and the top 3 are flagged as "Must-Read."
-
-## Example Output
-
-### Article Note
-
-```markdown
-# How to Price AI Products: The Complete Guide for PMs
-
-**Source**: [Product Growth](https://www.news.aakashg.com/p/how-to-price-ai-products)
-**Author**: Aakash Gupta & Moe Ali | **Date**: Feb 26, 2026
-
----
-
-## Summary
-
-A comprehensive breakdown of 6 pricing models for AI products...
-
-## Key Takeaways
-
-- **Six pricing models**: Hybrid tiered subscriptions, usage-based...
-- **Your best users are your most expensive users** — every AI interaction...
-
-## Related
-
-- [[AI Evals Explained Simply]]
-- [[PM OS for PMs]]
-```
-
-### Weekly Digest Email
-
-The digest arrives as a styled email with:
-
-- **Must-Read** section highlighting the top 3 articles with summaries and takeaways
-- **Full ranked list** of all articles from the week with relevance context
-- Links back to the original articles
 
 ## Configured Feeds
 
@@ -131,8 +116,9 @@ The digest arrives as a styled email with:
 
 - Python 3.10+
 - An [Anthropic API key](https://console.anthropic.com/)
-- An Obsidian vault
-- A [Resend API key](https://resend.com/) (for email digest, configured as GitHub Actions secret)
+- An Obsidian vault (for local sync)
+- A [Resend API key](https://resend.com/) (for email digest)
+- [direnv](https://direnv.net/) (optional, for local dev)
 
 ### Install
 
@@ -155,39 +141,32 @@ cp .env.example .env
 # Add your Resend API key (optional, for email digest)
 ```
 
-2. Edit `config.json` to point to your vault and configure feeds:
+2. Edit `config.json` to set your vault path and configure feeds.
 
-```json
-{
-  "vault_path": "/path/to/your/obsidian/vault",
-  "case_studies_path": "PM Craft/Reading Notes",
-  "model": "claude-haiku-4-5-20251001",
-  "digest_email": {
-    "enabled": true,
-    "from": "PM Digest <digest@yourdomain.com>",
-    "to": ["you@example.com"]
-  },
-  "feeds": [
-    {
-      "name": "Product Growth",
-      "url": "https://www.news.aakashg.com/feed",
-      "author": "Aakash Gupta",
-      "seen_file": "seen_product_growth.json"
-    }
-  ]
-}
-```
+3. Add repository secrets in GitHub **Settings > Secrets and variables > Actions**:
+   - `ANTHROPIC_API_KEY`
+   - `RESEND_API_KEY`
 
-### Run
+### Local Vault Sync
+
+Install the launchd agent to sync cloud-ingested notes into your Obsidian vault:
 
 ```bash
-source .venv/bin/activate
+cp com.kushan.product-growth-sync.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kushan.product-growth-sync.plist
+```
 
-# Ingest new articles
+The agent runs daily at 9am and on login/wake. It pulls the repo and rsyncs `notes/` into your vault.
+
+### Run Manually
+
+```bash
+# Cloud ingest can also be triggered from the GitHub Actions tab
+# Or run locally for testing:
+python3 ingest_cloud.py
+
+# Local-only ingest (writes directly to Obsidian vault):
 python3 ingest.py
-
-# Weekly digest runs automatically via GitHub Actions
-# Or trigger manually from the Actions tab on GitHub
 ```
 
 ## Adding Feeds
@@ -202,68 +181,6 @@ Add any Substack newsletter (or any RSS feed) to the `feeds` array in `config.js
   "seen_file": "seen_newsletter_name.json"
 }
 ```
-
-The script auto-creates folders as needed in your Obsidian vault.
-
-## Scheduling
-
-### macOS (launchd)
-
-Create plist files at `~/Library/LaunchAgents/`:
-
-**Daily ingestion** (`com.newsletter-ingest.plist`):
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.newsletter-ingest</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/path/to/pm-newsletter-ingest/.venv/bin/python3</string>
-        <string>/path/to/pm-newsletter-ingest/ingest.py</string>
-    </array>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>8</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>/path/to/pm-newsletter-ingest/logs/ingest.log</string>
-    <key>StandardErrorPath</key>
-    <string>/path/to/pm-newsletter-ingest/logs/ingest-error.log</string>
-</dict>
-</plist>
-```
-
-Then load it:
-
-```bash
-launchctl load ~/Library/LaunchAgents/com.newsletter-ingest.plist
-```
-
-### Linux (cron)
-
-```bash
-crontab -e
-# Daily ingestion at 8am
-0 8 * * * cd /path/to/pm-newsletter-ingest && .venv/bin/python3 ingest.py >> logs/ingest.log 2>&1
-```
-
-### GitHub Actions (cloud digest)
-
-The cloud digest runs automatically via GitHub Actions — no local machine required.
-
-1. Push this repo to GitHub
-2. Add repository secrets in **Settings > Secrets and variables > Actions**:
-   - `ANTHROPIC_API_KEY`
-   - `RESEND_API_KEY`
-3. The workflow runs every Saturday at 9am ET (2pm UTC). You can also trigger it manually from the **Actions** tab.
 
 ## Cost
 

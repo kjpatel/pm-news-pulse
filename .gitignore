@@ -1,5 +1,5 @@
 .venv/
 .env
-seen_*.json
+.envrc
 logs/
 __pycache__/

@@ -1,13 +1,13 @@
-name: Weekly PM Digest
+name: Daily PM Ingest
 
 on:
   schedule:
-    # Saturday 2pm UTC = Saturday 9am ET
-    - cron: '0 14 * * 6'
+    # Daily at 12:00 UTC = 8:00 AM ET
+    - cron: '0 12 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
-  digest:
+  ingest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,20 +19,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run cloud digest
+      - name: Run cloud ingest
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-        run: python digest_cloud.py
+        run: python ingest_cloud.py
 
-      - name: Commit digest note
+      - name: Commit new notes and seen files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add notes/Digests/
+          git add notes/ seen_*.json
           if git diff --cached --quiet; then
-            echo "No digest to commit"
+            echo "No new articles to commit"
           else
-            git commit -m "digest: $(date -u +%Y-%m-%d) weekly digest"
+            git commit -m "ingest: $(date -u +%Y-%m-%d) daily article sync"
             git push
           fi
