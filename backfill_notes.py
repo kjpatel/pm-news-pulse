@@ -12,7 +12,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import anthropic
@@ -259,31 +259,26 @@ def main():
             log.warning(f"Failed to fetch RSS for {feed_name}: {e}")
             rss_articles = {}
 
+        # Only backfill articles still in the current RSS feed (i.e., recent).
+        # Old articles that have fallen off the feed are skipped.
+        cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+
         for url in missing_urls:
-            # Try to get metadata from RSS
             article = rss_articles.get(url)
             if not article:
-                # Article is no longer in the RSS feed — fetch page directly
-                log.info(f"Not in RSS, fetching directly: {url}")
-                content = fetch_article_content(url)
-                if not content:
-                    log.warning(f"Could not fetch {url}, skipping")
-                    total_skipped += 1
-                    continue
-                # Extract title from content
-                soup = BeautifulSoup(content, "html.parser")
-                title = soup.title.string if soup.title else "Untitled"
-                article = {
-                    "title": title,
-                    "url": url,
-                    "published": "",
-                    "published_iso": "",
-                    "description": "",
-                }
-            else:
-                content = fetch_article_content(url)
-                if not content:
-                    content = BeautifulSoup(article["description"], "html.parser").get_text()
+                log.info(f"Not in current RSS feed, skipping: {url}")
+                total_skipped += 1
+                continue
+
+            # Skip articles older than 30 days
+            if article["published_iso"] and article["published_iso"] < cutoff:
+                log.info(f"Older than 30 days, skipping: {article['title']}")
+                total_skipped += 1
+                continue
+
+            content = fetch_article_content(url)
+            if not content:
+                content = BeautifulSoup(article["description"], "html.parser").get_text()
 
             try:
                 result = generate_summary(

@@ -15,7 +15,7 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import anthropic
@@ -232,7 +232,14 @@ def process_feed(
 
     seen_urls = load_seen(seen_file)
     articles = fetch_feed(feed_url)
-    new_articles = [a for a in articles if a["url"] not in seen_urls]
+
+    # Skip articles older than 30 days to avoid processing huge back-catalogs
+    cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    new_articles = [
+        a for a in articles
+        if a["url"] not in seen_urls
+        and (not a["published_iso"] or a["published_iso"] >= cutoff)
+    ]
 
     if not new_articles:
         log.info(f"No new articles from {feed_name}")
