@@ -54,7 +54,7 @@ def load_config() -> dict:
 
 
 def load_seen(seen_file: str) -> list[str]:
-    path = SCRIPT_DIR / seen_file
+    path = SCRIPT_DIR / "seen" / seen_file
     if path.exists():
         with open(path) as f:
             return json.load(f)
@@ -62,7 +62,7 @@ def load_seen(seen_file: str) -> list[str]:
 
 
 def save_seen(seen_file: str, urls: list[str]) -> None:
-    path = SCRIPT_DIR / seen_file
+    path = SCRIPT_DIR / "seen" / seen_file
     with open(path, "w") as f:
         json.dump(urls, f, indent=2)
 
