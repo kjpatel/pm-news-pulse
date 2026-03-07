@@ -13,7 +13,7 @@ Everything runs in the cloud via GitHub Actions — no local machine dependency.
                   │   Daily: ingest_cloud.py             │
                   │   (GitHub Actions, 8am ET)           │
   RSS Feeds ──►   │  Fetch Article ──► Claude AI ──►     │  ──► notes/ in repo
-  (~20 sources)    │                   Summary +         │
+  (~20 sources)   │                    Summary +         │
                   │                    Takeaways         │
                   └────────────────────────────────────-─┘
                                     │
