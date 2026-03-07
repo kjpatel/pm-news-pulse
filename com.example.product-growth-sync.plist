@@ -3,14 +3,14 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.kushan.product-growth-sync</string>
+    <string>com.yourname.product-growth-sync</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/kushan/scripts/product-growth-ingest/sync_to_vault.sh</string>
+        <string>/path/to/product-growth-ingest/sync_to_vault.sh</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/kushan/scripts/product-growth-ingest</string>
+    <string>/path/to/product-growth-ingest</string>
     <key>RunAtLoad</key>
     <true/>
     <key>StartCalendarInterval</key>
@@ -21,8 +21,8 @@
         <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/kushan/scripts/product-growth-ingest/logs/sync.log</string>
+    <string>/path/to/product-growth-ingest/logs/sync.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/kushan/scripts/product-growth-ingest/logs/sync-error.log</string>
+    <string>/path/to/product-growth-ingest/logs/sync-error.log</string>
 </dict>
 </plist>
