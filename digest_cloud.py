@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -438,7 +439,7 @@ def main():
         log.error("ANTHROPIC_API_KEY environment variable not set")
         sys.exit(1)
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(max_retries=5)
     feeds = config.get("feeds", [])
 
     # Fetch recent articles from all feeds
@@ -449,7 +450,7 @@ def main():
 
     # Summarize each article
     log.info(f"Summarizing {len(articles)} articles...")
-    for article in articles:
+    for i, article in enumerate(articles):
         try:
             content = fetch_article_content(article["url"])
             if not content:
@@ -477,6 +478,10 @@ def main():
             article["author"] = article["feed_author"]
             article["date"] = article["published"]
 
+        # Brief pause between API calls to reduce overload risk
+        if i < len(articles) - 1:
+            time.sleep(1)
+
     # Remove articles with no summary
     articles = [a for a in articles if a.get("summary")]
 
@@ -485,7 +490,15 @@ def main():
         return
 
     # Rank and format
-    ranking = generate_ranking(client, config["model"], articles)
+    try:
+        ranking = generate_ranking(client, config["model"], articles)
+    except Exception as e:
+        log.warning(f"Failed to rank articles via AI: {e}")
+        log.info("Using default chronological ordering instead")
+        ranking = [
+            {"index": i, "rank": i + 1, "relevance": "", "must_read": i < 3}
+            for i in range(len(articles))
+        ]
 
     today = datetime.now()
     week_start = (today - timedelta(days=7)).strftime("%b %d")
