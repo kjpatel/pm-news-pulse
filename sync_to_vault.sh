@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NOTES_DIR="$SCRIPT_DIR/notes"
-VAULT_DIR="/Users/kushan/Obsidian Vaults/Kush-Personal-Sync/🎯 PM Craft/Reading Notes"
+VAULT_DIR="/Users/kushan/dev/Obsidian Vaults/Kush-Personal-Sync/03 🎯 PM Craft/Reading Notes"
 
 LOG_FILE="$SCRIPT_DIR/logs/sync.log"
 mkdir -p "$SCRIPT_DIR/logs"

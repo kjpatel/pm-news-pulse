@@ -1,6 +1,6 @@
 {
-  "vault_path": "/Users/kushan/Obsidian Vaults/Kush-Personal-Sync",
-  "case_studies_path": "🎯 PM Craft/Reading Notes",
+  "vault_path": "/Users/kushan/dev/Obsidian Vaults/Kush-Personal-Sync",
+  "case_studies_path": "03 🎯 PM Craft/Reading Notes",
   "model": "claude-haiku-4-5-20251001",
   "digest_email": {
     "enabled": true,
