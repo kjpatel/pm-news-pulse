@@ -1,23 +1,23 @@
 # A guide to advanced B2B positioning
 
-**Source**: [Lenny's Newsletter](https://www.lennysnewsletter.com/p/a-guide-to-advanced-b2b-positioning-e49)
+**Source**: [Lenny's Newsletter](https://www.lennysnewsletter.com/p/a-guide-to-advanced-b2b-positioning)
 **Author**: Lenny Rachitsky (featuring April Dunford) | **Date**: Mar 10, 2026
 
 ---
 
 ## Summary
 
-April Dunford, a B2B positioning expert, shares advanced tactics for overcoming positioning challenges that product teams face, emphasizing that distribution—not product launch—is now the primary bottleneck for success.
+April Dunford provides a guide to navigating advanced B2B positioning challenges by identifying four common roadblocks—disagreement about competitors, product pessimism, poorly defined differentiation, and unclear positioning targets—and offering practical strategies to overcome each one.
 
 ## Key Takeaways
 
-- **Identify your four positioning roadblocks**: Understand the specific obstacles your cross-functional team faces when making positioning decisions, as these are universal challenges that require targeted solutions.
-- **Resolve competitive disagreement systematically**: Use data-driven frameworks to align teams on competitor definition, since cross-functional consensus rarely emerges naturally on competitive positioning.
-- **Apply the 'So what?' test rigorously**: Validate that your differentiated value proposition answers why customers should care, not just what makes you different.
-- **Let GTM strategy inform positioning**: Drive positioning decisions backward from your go-to-market strategy rather than treating them as separate exercises.
+- **Align on competitor perspective**: Get all cross-functional teams (marketing, product, sales, founders) to agree on the prospect's view of competition by asking 'If we didn't exist, what would they do?' rather than letting each department's biases dominate.
+- **Reframe product weaknesses as strengths**: Actively document and reposition perceived product limitations as valuable differentiators by understanding why customers chose your solution despite these constraints.
+- **Define differentiation with customer language**: Ground your positioning in specific, measurable customer outcomes and use actual customer language rather than internal jargon to clearly communicate what makes you different.
+- **Clarify your positioning target audience**: Be explicit about who you're positioning to and against, ensuring the entire company understands which customer segments and competitors are in scope versus out of scope for your positioning strategy.
 
 ## Related
 
-- [[2026-02-14 How to build product-led growth in 2026 (the complete 7-layer playbook)]]
+- [[2026-03-10 5 Ways To Get Product Discovery Wrong]]
 - [[2026-02-26 How to Price AI Products The Complete Guide for PMs]]
-- [[How to Build Product Strategy in the Age of AI Step-by-Step with Claude Code]]
+- [[2026-02-20 2026.08 Losing in the Attention Economy]]
