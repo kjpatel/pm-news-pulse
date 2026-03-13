@@ -456,7 +456,12 @@ def markdown_to_html(md: str) -> str:
     return (
         '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,'
         'Helvetica,Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;'
-        f'color:#333;">{body}</div>'
+        f'color:#333;">{body}'
+        '<hr style="border:none;border-top:1px solid #e0e0e0;margin:32px 0 16px;">'
+        '<p style="text-align:center;font-size:12px;color:#999;">'
+        '<a href="{{unsub_url}}" style="color:#999;">Unsubscribe</a>'
+        " from PM News Pulse</p>"
+        "</div>"
     )
 
 
@@ -535,23 +540,24 @@ def send_digest_email(config: dict, digest_content: str, week_end: str) -> None:
         log.warning("No recipients — skipping email")
         return
 
-    # Resend supports max 50 recipients per call
-    for i in range(0, len(all_recipients), 50):
-        batch = all_recipients[i : i + 50]
+    # Send individually so each recipient gets a personalized unsubscribe link
+    signup_api_url = email_config.get("signup_api_url", "")
+    sent = 0
+    for recipient in all_recipients:
+        unsub_url = f"{signup_api_url}?unsub={recipient}" if signup_api_url else "#"
+        personalized_html = html.replace("{{unsub_url}}", unsub_url)
         params = {
             "from": email_config["from"],
-            "to": batch,
+            "to": [recipient],
             "subject": f"Weekly PM Digest - {week_end}",
-            "html": html,
+            "html": personalized_html,
         }
         try:
-            result = resend.Emails.send(params)
-            log.info(
-                f"Batch {i // 50 + 1} sent ({len(batch)} recipients): "
-                f"{result.get('id', 'OK')}"
-            )
+            resend.Emails.send(params)
+            sent += 1
         except Exception as e:
-            log.error(f"Failed to send batch {i // 50 + 1}: {e}")
+            log.error(f"Failed to send to {recipient}: {e}")
+    log.info(f"Digest sent to {sent}/{len(all_recipients)} recipients")
 
 
 def main():
