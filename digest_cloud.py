@@ -508,7 +508,10 @@ def send_digest_email(config: dict, digest_content: str, week_end: str) -> None:
 
     # Merge hardcoded config recipients with Resend audience contacts
     config_recipients = {r.lower() for r in email_config.get("to", [])}
-    audience_id = os.environ.get("RESEND_AUDIENCE_ID", "")
+    audience_id = (
+        email_config.get("resend_audience_id")
+        or os.environ.get("RESEND_AUDIENCE_ID", "")
+    )
     audience_recipients: set[str] = set()
 
     if audience_id:
@@ -662,6 +665,20 @@ def main():
     digest_path = digest_dir / f"{digest_date} Weekly PM Digest.md"
     digest_path.write_text(digest_content, encoding="utf-8")
     log.info(f"Saved digest: {digest_path.relative_to(SCRIPT_DIR)}")
+
+    # Save latest digest as JSON for welcome emails to new subscribers
+    email_config = config.get("digest_email", {})
+    latest_path = digest_dir / "latest-digest.json"
+    latest_path.write_text(
+        json.dumps({
+            "subject": f"Weekly PM Digest - {week_end}",
+            "from": email_config.get("from", ""),
+            "html": markdown_to_html(digest_content),
+            "date": digest_date,
+        }),
+        encoding="utf-8",
+    )
+    log.info("Saved latest-digest.json")
 
     # Send email (skip if SKIP_EMAIL is set, e.g. for local regen)
     if not os.environ.get("SKIP_EMAIL"):
