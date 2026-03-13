@@ -10,6 +10,7 @@ already summarized by ingest_cloud.py.
 Designed to run in GitHub Actions.
 """
 
+import argparse
 import json
 import logging
 import os
@@ -459,6 +460,37 @@ def markdown_to_html(md: str) -> str:
     )
 
 
+def fetch_audience_contacts(audience_id: str) -> list[str]:
+    """Fetch subscribed email addresses from a Resend audience."""
+    api_key = os.environ.get("RESEND_API_KEY")
+    if not api_key or not audience_id:
+        return []
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    url = f"https://api.resend.com/audiences/{audience_id}/contacts"
+    emails: list[str] = []
+
+    while url:
+        resp = httpx.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        for contact in data.get("data", []):
+            if not contact.get("unsubscribed", False):
+                emails.append(contact["email"])
+
+        # Cursor-based pagination
+        next_cursor = data.get("next")
+        url = (
+            f"https://api.resend.com/audiences/{audience_id}/contacts"
+            f"?starting_after={next_cursor}"
+            if next_cursor
+            else None
+        )
+
+    return emails
+
+
 def send_digest_email(config: dict, digest_content: str, week_end: str) -> None:
     """Send the digest via Resend API."""
     email_config = config.get("digest_email", {})
@@ -474,22 +506,65 @@ def send_digest_email(config: dict, digest_content: str, week_end: str) -> None:
     resend.api_key = api_key
     html = markdown_to_html(digest_content)
 
-    params = {
-        "from": email_config["from"],
-        "to": email_config["to"],
-        "subject": f"Weekly PM Digest - {week_end}",
-        "html": html,
-    }
+    # Merge hardcoded config recipients with Resend audience contacts
+    config_recipients = {r.lower() for r in email_config.get("to", [])}
+    audience_id = os.environ.get("RESEND_AUDIENCE_ID", "")
+    audience_recipients: set[str] = set()
 
-    try:
-        result = resend.Emails.send(params)
-        log.info(f"Digest email sent: {result.get('id', 'OK')}")
-    except Exception as e:
-        log.error(f"Failed to send digest email: {e}")
+    if audience_id:
+        try:
+            audience_recipients = {
+                r.lower() for r in fetch_audience_contacts(audience_id)
+            }
+            log.info(f"Fetched {len(audience_recipients)} audience contact(s)")
+        except Exception as e:
+            log.warning(f"Failed to fetch audience contacts: {e}")
+
+    all_recipients = sorted(config_recipients | audience_recipients)
+    overlap = len(config_recipients & audience_recipients)
+    log.info(
+        f"Recipients: {len(all_recipients)} total "
+        f"({len(config_recipients)} config + {len(audience_recipients)} audience"
+        f", {overlap} overlap)"
+    )
+
+    if not all_recipients:
+        log.warning("No recipients — skipping email")
+        return
+
+    # Resend supports max 50 recipients per call
+    for i in range(0, len(all_recipients), 50):
+        batch = all_recipients[i : i + 50]
+        params = {
+            "from": email_config["from"],
+            "to": batch,
+            "subject": f"Weekly PM Digest - {week_end}",
+            "html": html,
+        }
+        try:
+            result = resend.Emails.send(params)
+            log.info(
+                f"Batch {i // 50 + 1} sent ({len(batch)} recipients): "
+                f"{result.get('id', 'OK')}"
+            )
+        except Exception as e:
+            log.error(f"Failed to send batch {i // 50 + 1}: {e}")
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Weekly PM Digest Generator")
+    parser.add_argument(
+        "--to",
+        nargs="+",
+        help="Override recipient list (e.g. --to alice@example.com bob@example.com)",
+    )
+    args = parser.parse_args()
+
     config = load_config()
+
+    if args.to:
+        config["digest_email"]["to"] = args.to
+        log.info(f"Overriding recipients: {args.to}")
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         log.error("ANTHROPIC_API_KEY environment variable not set")
