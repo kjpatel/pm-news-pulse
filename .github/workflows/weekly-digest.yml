@@ -2,8 +2,8 @@ name: Weekly PM Digest
 
 on:
   schedule:
-    # Saturday 2pm UTC = Saturday 9am ET
-    - cron: '0 14 * * 6'
+    # Friday 2pm UTC = Friday 9am ET
+    - cron: '0 14 * * 5'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
