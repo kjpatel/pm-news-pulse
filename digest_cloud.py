@@ -349,6 +349,155 @@ Sort articles by rank (1 first). Return ONLY valid JSON, no markdown fences or o
     return json.loads(text)
 
 
+def fetch_trending_repos(days: int = 7, limit: int = 5) -> list[dict]:
+    """Fetch trending GitHub repositories created in the last N days.
+
+    Uses the GitHub search API to find recently created repos sorted by stars.
+    """
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    url = "https://api.github.com/search/repositories"
+    params = {
+        "q": f"created:>{cutoff}",
+        "sort": "stars",
+        "order": "desc",
+        "per_page": limit,
+    }
+    headers = {"Accept": "application/vnd.github+json"}
+
+    # Use a GitHub token if available (higher rate limits)
+    gh_token = os.environ.get("GITHUB_TOKEN")
+    if gh_token:
+        headers["Authorization"] = f"Bearer {gh_token}"
+
+    try:
+        resp = httpx.get(url, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        log.warning(f"Failed to fetch trending repos: {e}")
+        return []
+
+    data = resp.json()
+    repos = []
+    for item in data.get("items", [])[:limit]:
+        repos.append({
+            "name": item.get("full_name", ""),
+            "url": item.get("html_url", ""),
+            "description": item.get("description") or "No description",
+            "stars": item.get("stargazers_count", 0),
+            "language": item.get("language") or "N/A",
+            "forks": item.get("forks_count", 0),
+        })
+
+    log.info(f"Fetched {len(repos)} trending repo(s) from GitHub")
+    return repos
+
+
+def fetch_trending_hn(days: int = 7, limit: int = 5) -> list[dict]:
+    """Fetch top Hacker News stories from the past N days by score.
+
+    Uses the Algolia HN Search API to query stories within a date range,
+    sorted by points (descending).
+    """
+    cutoff = int((datetime.now() - timedelta(days=days)).timestamp())
+    url = "https://hn.algolia.com/api/v1/search"
+    params = {
+        "tags": "story",
+        "numericFilters": f"created_at_i>{cutoff}",
+        "hitsPerPage": limit,
+    }
+
+    try:
+        resp = httpx.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        log.warning(f"Failed to fetch trending HN stories: {e}")
+        return []
+
+    data = resp.json()
+    stories = []
+    for hit in data.get("hits", [])[:limit]:
+        story_id = hit.get("objectID", "")
+        stories.append({
+            "title": hit.get("title", "Untitled"),
+            "url": hit.get("url") or f"https://news.ycombinator.com/item?id={story_id}",
+            "score": hit.get("points", 0),
+            "comments": hit.get("num_comments", 0),
+            "hn_url": f"https://news.ycombinator.com/item?id={story_id}",
+        })
+
+    log.info(f"Fetched {len(stories)} trending HN story(ies)")
+    return stories
+
+
+def annotate_trending(
+    client: anthropic.Anthropic,
+    model: str,
+    repos: list[dict],
+    hn_stories: list[dict],
+) -> None:
+    """Use Claude to add a short 'why it matters' blurb to each trending item.
+
+    Mutates items in-place, adding a 'blurb' key to each.
+    """
+    if not repos and not hn_stories:
+        return
+
+    parts = []
+    if repos:
+        parts.append("GITHUB REPOS:")
+        for i, r in enumerate(repos):
+            parts.append(
+                f"  [{i}] {r['name']} — {r['description']} "
+                f"(⭐ {r['stars']:,}, {r.get('language', 'N/A')})"
+            )
+    if hn_stories:
+        parts.append("HACKER NEWS STORIES:")
+        for i, s in enumerate(hn_stories):
+            parts.append(
+                f"  [{i}] {s['title']} (▲ {s['score']:,}, "
+                f"💬 {s['comments']:,})"
+            )
+
+    items_text = "\n".join(parts)
+
+    prompt = f"""You are writing for a weekly newsletter aimed at senior product managers and VPs of Product at B2B SaaS companies.
+
+Below are trending GitHub repos and/or Hacker News stories from this week:
+
+{items_text}
+
+For each item, write a 1-sentence blurb (15-25 words) explaining what it is and why a product leader should care. Focus on practical relevance: what does this signal about the market, tooling, or industry direction?
+
+Return a JSON object with:
+- "repos": array of blurb strings (one per repo, in order), or empty array if no repos
+- "hn_stories": array of blurb strings (one per story, in order), or empty array if no stories
+
+Return ONLY valid JSON, no markdown fences or other text."""
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+        result = json.loads(text)
+
+        for i, blurb in enumerate(result.get("repos", [])):
+            if i < len(repos):
+                repos[i]["blurb"] = blurb
+        for i, blurb in enumerate(result.get("hn_stories", [])):
+            if i < len(hn_stories):
+                hn_stories[i]["blurb"] = blurb
+
+        log.info("Annotated trending items with blurbs")
+    except Exception as e:
+        log.warning(f"Failed to annotate trending items: {e}")
+
+
 def load_cached_notes(days: int = 7) -> dict[str, dict]:
     """Load article summaries already generated by ingest_cloud.py.
 
@@ -446,6 +595,8 @@ def format_digest(
     week_start: str,
     week_end: str,
     feeds: list[dict] | None = None,
+    trending_repos: list[dict] | None = None,
+    trending_hn: list[dict] | None = None,
 ) -> str:
     """Format the ranked digest as markdown."""
     # Support both old list format and new dict format
@@ -535,6 +686,35 @@ def format_digest(
                 entry.append(t)
             entry.append("")
             lines.extend(entry)
+
+    # Trending GitHub repos section
+    if trending_repos:
+        lines.extend(["", "## Trending on GitHub", ""])
+        for repo in trending_repos:
+            stars = f"⭐ {repo['stars']:,}"
+            lang = repo.get("language", "N/A")
+            lines.append(
+                f"**[{repo['name']}]({repo['url']})** ({stars} · {lang})"
+            )
+            lines.append(f"{repo['description']}")
+            if repo.get("blurb"):
+                lines.append(f"*{repo['blurb']}*")
+            lines.append("")
+
+    # Trending Hacker News stories section
+    if trending_hn:
+        lines.extend(["", "## Trending on Hacker News", ""])
+        for story in trending_hn:
+            score = f"▲ {story['score']:,}"
+            comments = f"💬 {story['comments']:,}"
+            lines.append(
+                f"**[{story['title']}]({story['url']})** "
+                f"({score} · {comments}) "
+                f"— [discussion]({story['hn_url']})"
+            )
+            if story.get("blurb"):
+                lines.append(f"*{story['blurb']}*")
+            lines.append("")
 
     return "\n".join(lines) + "\n"
 
@@ -634,6 +814,32 @@ def markdown_to_html(md: str) -> str:
                 '<h2 style="font-size:13px;text-transform:uppercase;'
                 'letter-spacing:1.5px;color:#5B3FD6;margin:32px 0 20px;'
                 'font-weight:700;">Must-Read</h2>'
+            )
+            continue
+
+        if stripped == "## Trending on GitHub":
+            if in_card:
+                html.append('</div>')
+                in_card = False
+            section = "trending_repos"
+            html.append(
+                '<hr style="border:none;border-top:1px solid #E8E8EC;margin:32px 0;">'
+                '<h2 style="font-size:13px;text-transform:uppercase;'
+                'letter-spacing:1.5px;color:#7B7F8E;margin:0 0 20px;'
+                'font-weight:700;">Trending on GitHub</h2>'
+            )
+            continue
+
+        if stripped == "## Trending on Hacker News":
+            if in_card:
+                html.append('</div>')
+                in_card = False
+            section = "trending_hn"
+            html.append(
+                '<hr style="border:none;border-top:1px solid #E8E8EC;margin:32px 0;">'
+                '<h2 style="font-size:13px;text-transform:uppercase;'
+                'letter-spacing:1.5px;color:#FF6600;margin:0 0 20px;'
+                'font-weight:700;">Trending on Hacker News</h2>'
             )
             continue
 
@@ -821,6 +1027,49 @@ def markdown_to_html(md: str) -> str:
             text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
             html.append(
                 f'<p style="margin:6px 0 10px;font-size:14px;color:#555;'
+                f'line-height:1.5;">{text}</p>'
+            )
+            continue
+
+        # ====== Trending on GitHub / Hacker News sections ======
+        if section in ("trending_repos", "trending_hn"):
+            link_color = "#333" if section == "trending_repos" else "#FF6600"
+            blurb_color = "#555"
+            # Title line: **[name](url)** (stats)
+            if stripped.startswith("**["):
+                # Extract link and make it colored, rest stays neutral
+                m = re.match(r'\*\*\[([^\]]+)\]\(([^)]+)\)\*\*\s*(.*)', stripped)
+                if m:
+                    link_text, link_url, meta = m.group(1), m.group(2), m.group(3)
+                    meta = _md_links(meta)
+                    html.append(
+                        f'<p style="margin:16px 0 4px;font-size:15px;'
+                        f'line-height:1.5;">'
+                        f'<a href="{link_url}" style="color:{link_color};'
+                        f'font-weight:600;text-decoration:none;">{link_text}</a>'
+                        f' <span style="color:#7B7F8E;font-size:13px;">{meta}</span></p>'
+                    )
+                else:
+                    text = stripped
+                    text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+                    text = _md_links(text)
+                    html.append(
+                        f'<p style="margin:16px 0 4px;font-size:15px;'
+                        f'color:#1a1a1a;line-height:1.5;">{text}</p>'
+                    )
+                continue
+            # Blurb: *italic text*
+            if stripped.startswith("*") and stripped.endswith("*") and not stripped.startswith("**"):
+                text = stripped[1:-1]
+                html.append(
+                    f'<p style="margin:2px 0 0;font-size:13px;color:{blurb_color};'
+                    f'font-style:italic;line-height:1.5;">{text}</p>'
+                )
+                continue
+            # Description text
+            text = _md_links(stripped)
+            html.append(
+                f'<p style="margin:2px 0 0;font-size:14px;color:#555;'
                 f'line-height:1.5;">{text}</p>'
             )
             continue
@@ -1072,12 +1321,20 @@ def main():
             ],
         }
 
+    # Fetch trending GitHub repos and Hacker News stories
+    trending_repos = fetch_trending_repos(days=7, limit=5)
+    trending_hn = fetch_trending_hn(days=7, limit=5)
+    annotate_trending(client, config["model"], trending_repos, trending_hn)
+
     today = datetime.now()
     week_start = (today - timedelta(days=7)).strftime("%b %d")
     week_end = today.strftime("%b %d, %Y")
     week_range = f"{week_start} – {today.strftime('%b %d, %Y')}"
 
-    digest_content = format_digest(articles, ranking_result, week_start, week_end, feeds)
+    digest_content = format_digest(
+        articles, ranking_result, week_start, week_end, feeds,
+        trending_repos, trending_hn,
+    )
 
     # Save digest as markdown note
     digest_dir = NOTES_DIR / "Digests"

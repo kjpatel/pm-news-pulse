@@ -11,8 +11,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from digest_cloud import (
     _deduplicate_articles,
+    annotate_trending,
     build_feed_homepage_map,
     fetch_audience_contacts,
+    fetch_trending_hn,
+    fetch_trending_repos,
     format_digest,
     load_cached_notes,
     markdown_to_html,
@@ -553,3 +556,432 @@ class TestFormatDigestWeeklyOverview:
         result = format_digest(articles, ranking_list, "Feb 28", "Mar 07, 2026")
         assert "Article 0" in result
         assert "## This Week" not in result
+
+
+class TestFetchTrendingRepos:
+    SAMPLE_RESPONSE = {
+        "items": [
+            {
+                "full_name": "owner/cool-repo",
+                "html_url": "https://github.com/owner/cool-repo",
+                "description": "A cool project",
+                "stargazers_count": 1234,
+                "language": "Python",
+                "forks_count": 56,
+            },
+            {
+                "full_name": "org/another-repo",
+                "html_url": "https://github.com/org/another-repo",
+                "description": None,
+                "stargazers_count": 789,
+                "language": None,
+                "forks_count": 12,
+            },
+        ],
+    }
+
+    def test_returns_repos_from_api(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = self.SAMPLE_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        with patch("digest_cloud.httpx.get", return_value=mock_resp):
+            repos = fetch_trending_repos(days=7, limit=5)
+        assert len(repos) == 2
+        assert repos[0]["name"] == "owner/cool-repo"
+        assert repos[0]["stars"] == 1234
+        assert repos[0]["language"] == "Python"
+
+    def test_null_description_fallback(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = self.SAMPLE_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        with patch("digest_cloud.httpx.get", return_value=mock_resp):
+            repos = fetch_trending_repos(days=7, limit=5)
+        assert repos[1]["description"] == "No description"
+
+    def test_null_language_fallback(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = self.SAMPLE_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        with patch("digest_cloud.httpx.get", return_value=mock_resp):
+            repos = fetch_trending_repos(days=7, limit=5)
+        assert repos[1]["language"] == "N/A"
+
+    def test_returns_empty_on_http_error(self):
+        import httpx as _httpx
+        with patch("digest_cloud.httpx.get", side_effect=_httpx.HTTPError("timeout")):
+            repos = fetch_trending_repos()
+        assert repos == []
+
+    def test_uses_github_token_if_available(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"items": []}
+        mock_resp.raise_for_status = MagicMock()
+        with (
+            patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_test123"}),
+            patch("digest_cloud.httpx.get", return_value=mock_resp) as mock_get,
+        ):
+            fetch_trending_repos()
+            headers = mock_get.call_args[1]["headers"]
+            assert headers["Authorization"] == "Bearer ghp_test123"
+
+
+class TestFormatDigestTrendingRepos:
+    def _make_articles(self, n=2):
+        return [
+            {
+                "title": f"Article {i}",
+                "url": f"https://example.com/{i}",
+                "feed_name": "Feed",
+                "author": "Author",
+                "date": "Mar 01, 2026",
+                "summary": f"Summary {i}.",
+                "takeaways": [],
+            }
+            for i in range(n)
+        ]
+
+    def _make_ranking(self, n=2):
+        return {
+            "articles": [
+                {"index": i, "rank": i + 1, "relevance": "R", "must_read": False}
+                for i in range(n)
+            ],
+        }
+
+    def _make_repos(self):
+        return [
+            {
+                "name": "owner/trending-repo",
+                "url": "https://github.com/owner/trending-repo",
+                "description": "A trending project",
+                "stars": 5000,
+                "language": "Rust",
+                "forks": 100,
+                "blurb": "Signals growing demand for Rust tooling in production.",
+            },
+        ]
+
+    def test_trending_section_rendered(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_repos=self._make_repos(),
+        )
+        assert "## Trending on GitHub" in result
+        assert "owner/trending-repo" in result
+
+    def test_trending_section_omitted_when_empty(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_repos=[],
+        )
+        assert "Trending on GitHub" not in result
+
+    def test_trending_section_omitted_when_none(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+        )
+        assert "Trending on GitHub" not in result
+
+    def test_trending_repo_has_stars_and_language(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_repos=self._make_repos(),
+        )
+        assert "5,000" in result
+        assert "Rust" in result
+
+    def test_trending_repo_has_blurb(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_repos=self._make_repos(),
+        )
+        assert "Signals growing demand" in result
+
+    def test_trending_repo_without_blurb(self):
+        repos = self._make_repos()
+        del repos[0]["blurb"]
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_repos=repos,
+        )
+        assert "## Trending on GitHub" in result
+        assert "owner/trending-repo" in result
+
+
+class TestMarkdownToHtmlTrendingRepos:
+    DIGEST_WITH_TRENDING = (
+        "# PM Pulse: Weekly Digest — Mar 07, 2026\n"
+        "\n"
+        "5 articles from 2 feeds | Mar 01 – Mar 07, 2026\n"
+        "\n"
+        "---\n"
+        "\n"
+        "## All Articles\n"
+        "\n"
+        "**1.** [Test](https://example.com) — *Feed* · Mar 01, 2026\n"
+        "\n"
+        "Summary text.\n"
+        "\n"
+        "## Trending on GitHub\n"
+        "\n"
+        "**[owner/cool-repo](https://github.com/owner/cool-repo)** (⭐ 1,234 · Python)\n"
+        "A cool project\n"
+        "*Signals a shift toward AI-native dev tooling.*\n"
+        "\n"
+        "**[org/another](https://github.com/org/another)** (⭐ 789 · Rust)\n"
+        "Another project\n"
+    )
+
+    def test_trending_section_in_html(self):
+        html = markdown_to_html(self.DIGEST_WITH_TRENDING)
+        assert "Trending on GitHub" in html
+
+    def test_trending_repo_links_in_html(self):
+        html = markdown_to_html(self.DIGEST_WITH_TRENDING)
+        assert "github.com/owner/cool-repo" in html
+        assert "github.com/org/another" in html
+
+    def test_trending_repo_blurb_styled(self):
+        html = markdown_to_html(self.DIGEST_WITH_TRENDING)
+        assert "Signals a shift" in html
+        assert "font-style:italic" in html
+
+    def test_trending_repo_links_dark_grey(self):
+        html = markdown_to_html(self.DIGEST_WITH_TRENDING)
+        assert 'color:#333' in html
+
+    def test_trending_repo_description_in_html(self):
+        html = markdown_to_html(self.DIGEST_WITH_TRENDING)
+        assert "A cool project" in html
+
+
+class TestFetchTrendingHN:
+    SAMPLE_RESPONSE = {
+        "hits": [
+            {
+                "objectID": "12345",
+                "title": "Show HN: Cool Project",
+                "url": "https://coolproject.com",
+                "points": 500,
+                "num_comments": 120,
+            },
+            {
+                "objectID": "67890",
+                "title": "Ask HN: Self-post question",
+                "url": None,
+                "points": 300,
+                "num_comments": 80,
+            },
+        ],
+    }
+
+    def test_returns_stories_from_api(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = self.SAMPLE_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        with patch("digest_cloud.httpx.get", return_value=mock_resp):
+            stories = fetch_trending_hn(days=7, limit=5)
+        assert len(stories) == 2
+        assert stories[0]["title"] == "Show HN: Cool Project"
+        assert stories[0]["score"] == 500
+        assert stories[0]["comments"] == 120
+        assert stories[0]["url"] == "https://coolproject.com"
+
+    def test_null_url_falls_back_to_hn_link(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = self.SAMPLE_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        with patch("digest_cloud.httpx.get", return_value=mock_resp):
+            stories = fetch_trending_hn(days=7, limit=5)
+        assert "news.ycombinator.com/item?id=67890" in stories[1]["url"]
+
+    def test_hn_url_always_set(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = self.SAMPLE_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        with patch("digest_cloud.httpx.get", return_value=mock_resp):
+            stories = fetch_trending_hn(days=7, limit=5)
+        for story in stories:
+            assert "news.ycombinator.com/item?id=" in story["hn_url"]
+
+    def test_returns_empty_on_http_error(self):
+        import httpx as _httpx
+        with patch("digest_cloud.httpx.get", side_effect=_httpx.HTTPError("timeout")):
+            stories = fetch_trending_hn()
+        assert stories == []
+
+    def test_passes_date_filter(self):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"hits": []}
+        mock_resp.raise_for_status = MagicMock()
+        with patch("digest_cloud.httpx.get", return_value=mock_resp) as mock_get:
+            fetch_trending_hn(days=7, limit=5)
+            params = mock_get.call_args[1]["params"]
+            assert params["tags"] == "story"
+            assert "created_at_i>" in params["numericFilters"]
+
+
+class TestFormatDigestTrendingHN:
+    def _make_articles(self, n=2):
+        return [
+            {
+                "title": f"Article {i}",
+                "url": f"https://example.com/{i}",
+                "feed_name": "Feed",
+                "author": "Author",
+                "date": "Mar 01, 2026",
+                "summary": f"Summary {i}.",
+                "takeaways": [],
+            }
+            for i in range(n)
+        ]
+
+    def _make_ranking(self, n=2):
+        return {
+            "articles": [
+                {"index": i, "rank": i + 1, "relevance": "R", "must_read": False}
+                for i in range(n)
+            ],
+        }
+
+    def _make_hn_stories(self):
+        return [
+            {
+                "title": "Show HN: Cool Thing",
+                "url": "https://cool.com",
+                "score": 500,
+                "comments": 120,
+                "hn_url": "https://news.ycombinator.com/item?id=12345",
+                "blurb": "Developer tools momentum continues to accelerate.",
+            },
+        ]
+
+    def test_hn_section_rendered(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_hn=self._make_hn_stories(),
+        )
+        assert "## Trending on Hacker News" in result
+        assert "Show HN: Cool Thing" in result
+
+    def test_hn_section_omitted_when_empty(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_hn=[],
+        )
+        assert "Trending on Hacker News" not in result
+
+    def test_hn_section_omitted_when_none(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+        )
+        assert "Trending on Hacker News" not in result
+
+    def test_hn_story_has_score_and_comments(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_hn=self._make_hn_stories(),
+        )
+        assert "500" in result
+        assert "120" in result
+
+    def test_hn_story_has_discussion_link(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_hn=self._make_hn_stories(),
+        )
+        assert "[discussion]" in result
+        assert "news.ycombinator.com" in result
+
+    def test_hn_story_has_blurb(self):
+        result = format_digest(
+            self._make_articles(), self._make_ranking(),
+            "Feb 28", "Mar 07, 2026",
+            trending_hn=self._make_hn_stories(),
+        )
+        assert "Developer tools momentum" in result
+
+
+class TestMarkdownToHtmlTrendingHN:
+    DIGEST_WITH_HN = (
+        "# PM Pulse: Weekly Digest — Mar 07, 2026\n"
+        "\n"
+        "5 articles from 2 feeds | Mar 01 – Mar 07, 2026\n"
+        "\n"
+        "---\n"
+        "\n"
+        "## All Articles\n"
+        "\n"
+        "**1.** [Test](https://example.com) — *Feed* · Mar 01, 2026\n"
+        "\n"
+        "Summary text.\n"
+        "\n"
+        "## Trending on Hacker News\n"
+        "\n"
+        "**[Show HN: Cool Thing](https://cool.com)** (▲ 500 · 💬 120) — [discussion](https://news.ycombinator.com/item?id=12345)\n"
+        "*Dev tools momentum continues to accelerate.*\n"
+    )
+
+    def test_hn_section_in_html(self):
+        html = markdown_to_html(self.DIGEST_WITH_HN)
+        assert "Trending on Hacker News" in html
+
+    def test_hn_section_header_is_orange(self):
+        html = markdown_to_html(self.DIGEST_WITH_HN)
+        assert "#FF6600" in html
+
+    def test_hn_story_links_in_html(self):
+        html = markdown_to_html(self.DIGEST_WITH_HN)
+        assert "cool.com" in html
+        assert "news.ycombinator.com" in html
+
+    def test_hn_links_orange(self):
+        html = markdown_to_html(self.DIGEST_WITH_HN)
+        assert 'color:#FF6600' in html
+
+    def test_hn_blurb_styled_in_html(self):
+        html = markdown_to_html(self.DIGEST_WITH_HN)
+        assert "Dev tools momentum" in html
+        assert "font-style:italic" in html
+
+
+class TestAnnotateTrending:
+    def test_adds_blurbs_to_repos_and_stories(self):
+        repos = [{"name": "owner/repo", "description": "A tool", "stars": 100, "language": "Python"}]
+        stories = [{"title": "Cool Post", "score": 500, "comments": 120}]
+
+        mock_resp = MagicMock()
+        mock_resp.content = [MagicMock(text='{"repos": ["Great for PMs building AI products."], "hn_stories": ["Signals a shift in dev tooling."]}')]
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_resp
+
+        annotate_trending(mock_client, "test-model", repos, stories)
+        assert repos[0]["blurb"] == "Great for PMs building AI products."
+        assert stories[0]["blurb"] == "Signals a shift in dev tooling."
+
+    def test_handles_api_failure_gracefully(self):
+        repos = [{"name": "owner/repo", "description": "A tool", "stars": 100, "language": "Python"}]
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = Exception("API error")
+
+        annotate_trending(mock_client, "test-model", repos, [])
+        assert "blurb" not in repos[0]
+
+    def test_skips_when_both_empty(self):
+        mock_client = MagicMock()
+        annotate_trending(mock_client, "test-model", [], [])
+        mock_client.messages.create.assert_not_called()
