@@ -1215,6 +1215,8 @@ def send_digest_email(
         if sent < len(all_recipients):
             time.sleep(0.6)
     log.info(f"Digest sent to {sent}/{len(all_recipients)} recipients")
+    if sent == 0:
+        raise RuntimeError("Digest delivery failed: no emails were sent successfully")
 
 
 def main():
