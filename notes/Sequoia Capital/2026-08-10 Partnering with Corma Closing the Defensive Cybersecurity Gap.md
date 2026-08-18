@@ -1,24 +1,24 @@
 # Partnering with Corma: Closing the Defensive Cybersecurity Gap
 
-**Source**: [Sequoia Capital](https://sequoiacap.com/article/partnering-with-corma-closing-the-defensive-cybersecurity-gap/)
+**Source**: [Sequoia Capital](https://www.sequoiacap.com/article/partnering-with-corma-closing-the-defensive-cybersecurity-gap)
 **Author**: Sequoia Capital | **Date**: Aug 10, 2026
 
 ---
 
 ## Summary
 
-Corma is building a specialized foundation model for defensive cybersecurity using reinforcement learning and self-play to close the growing gap between AI-powered offensive and defensive capabilities in enterprise security.
+Corma is training a specialized foundation model for defensive cybersecurity to counter the scaling offensive capabilities of frontier AI models, addressing a critical gap where defenders are losing ground to attackers in the agentic AI era.
 
 ## Key Takeaways
 
-- **Recognize the asymmetry**: Offensive AI capabilities are scaling faster than defensive ones—frontier models excel at exploitation but struggle with the open-ended anomaly detection required for defense, creating an urgent security gap.
-- **Invest in specialization**: Domain-specific foundation models trained on cybersecurity data (logs, events, traces) outperform general-purpose frontier models at defense because they're trained on the right modality and reward signals.
-- **Deploy agentic security workers**: Use AI agents that operate autonomously across security tools and can detect/remediate threats in real-time (one customer caught a 52-day-old attack in the agent's first hour).
-- **Prioritize inference speed and cost**: In the cat-and-mouse game of cybersecurity, fastest-to-respond wins—vertical integration and model ownership enable lower-cost, faster-deploying defensive capabilities.
-- **Build with elite talent**: Assembling teams with both world-class hackers and AI researchers is rare but essential for training models that can reason about real-world attack/defense scenarios.
+- **Build specialized models for underserved domains**: General-purpose frontier models are out-of-distribution for defensive cybersecurity; the data modality (logs, events, traces) and open-ended reasoning requirements demand purpose-built foundation models with domain-specific training.
+- **Use reinforcement learning and self-play for competitive problems**: Cybersecurity's two-player, zero-sum game structure with clean rewards enables large-scale RL and self-play training across simulated enterprise environments to achieve superhuman defensive capabilities.
+- **Prioritize model ownership and inference cost control**: Owning model weights avoids vendor restrictions on cybersecurity usage, while vertical integration reduces per-token inference costs critical for always-on security operations.
+- **Deploy AI agents end-to-end across organizational workflows**: Specialized security agents operating across multiple security tools and roles (SOC, identity, cloud, network) deliver immediate operational impact and uncover threats human teams miss.
+- **Assemble teams with both elite domain expertise and AI research capability**: Winning in specialized AI requires rare combinations—in Corma's case, world-class hackers paired with frontier researchers—to solve technical challenges and achieve commercial traction.
 
 ## Related
 
-- [[2026-05-08 Securing the Agentic Enterprise]]
 - [[2026-06-24 Defending Against AI-Powered Attackers]]
+- [[2026-05-08 Securing the Agentic Enterprise]]
 - [[2026-07-16 Partnering with Sable Closing the Diffusion Gap]]
