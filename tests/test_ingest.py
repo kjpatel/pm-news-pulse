@@ -2,6 +2,7 @@
 
 import json
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -174,14 +175,33 @@ class TestProcessFeed:
         }
 
     def _make_article(self, title="Test Article", url="https://example.com/1",
-                      published_iso="2026-03-10"):
+                      published_iso=None):
+        # process_feed drops articles older than 30 days, so the fixture date
+        # must be relative to today rather than hardcoded.
+        published = (
+            datetime.strptime(published_iso, "%Y-%m-%d") if published_iso
+            else datetime.now() - timedelta(days=1)
+        )
         return {
             "title": title,
             "url": url,
-            "published": "Mar 10, 2026",
-            "published_iso": published_iso,
+            "published": published.strftime("%b %d, %Y"),
+            "published_iso": published.strftime("%Y-%m-%d"),
             "description": "<p>Desc</p>",
         }
+
+    @patch("ingest_cloud.save_seen")
+    @patch("ingest_cloud.fetch_feed")
+    @patch("ingest_cloud.load_seen")
+    def test_skips_articles_older_than_30_days(self, mock_load_seen, mock_fetch_feed, mock_save_seen):
+        mock_load_seen.return_value = set()
+        old = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+        mock_fetch_feed.return_value = [self._make_article(published_iso=old)]
+        result = process_feed(
+            {"name": "F", "url": "https://x.com/feed", "seen_file": "s.json"},
+            {}, MagicMock(), [],
+        )
+        assert result == 0
 
     @patch("ingest_cloud.save_seen")
     @patch("ingest_cloud.generate_summary")
