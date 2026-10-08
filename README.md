@@ -136,9 +136,11 @@ The prompt receives the overview sections from the previous three digests so it 
 ingest_cloud.py        Daily ingest: fetch feeds, summarize new articles, write notes
 digest_cloud.py        Weekly digest: rank the week's articles, build and send the email
 feedfetch.py           Shared feed download (direct, then via the proxy on a 403), RSS and sitemap parsing
-proxy/                 Feed proxy: a small Flask service deployed to Cloud Run (see Setup)
+proxy/                 Feed proxy: a small Flask service deployed to Cloud Run (see Setup); keeps its own requirements.txt for the Cloud Run buildpack
 backfill_notes.py      One-off: generate notes for seen articles that have none (safe to re-run)
 config.json            Feeds, model, vault path, email settings
+pyproject.toml         Dependencies (runtime, plus a dev group for pytest and flask); uv.lock pins them
+.python-version        Python 3.12, installed by uv locally and in CI
 notes/<Feed Name>/     Generated article notes (Obsidian markdown), one folder per feed
 notes/Digests/         Weekly digest markdown plus latest-digest.json
 seen/seen_*.json       Per-feed trackers of already-processed article URLs
@@ -153,33 +155,34 @@ The repo doubles as the data store — `notes/` and `seen/` contain generated co
 
 ### Prerequisites
 
-- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (installs the pinned Python 3.12 and all dependencies)
 - An [Anthropic API key](https://console.anthropic.com/)
 - An Obsidian vault (for local sync)
 - A [Resend API key](https://resend.com/) (for email digest)
-- [direnv](https://direnv.net/) (optional, for local dev)
+- [direnv](https://direnv.net/) (optional, loads `.env` and activates the venv per directory)
 
 ### Install
 
 ```bash
 git clone https://github.com/kjpatel/pm-news-pulse.git
 cd pm-news-pulse
+uv sync
 ```
 
-If you use [direnv](https://direnv.net/), the `.envrc` will automatically create and activate a virtualenv:
+`uv sync` reads `pyproject.toml`, `uv.lock` and `.python-version`, installs Python 3.12 if needed, and creates `.venv` with the runtime and dev dependencies. Run anything with `uv run`, which keeps the environment in sync:
 
 ```bash
-direnv allow
-pip install -r requirements.txt
+uv run python digest_cloud.py --help
 ```
 
-Otherwise, create one manually:
+If you use [direnv](https://direnv.net/), an `.envrc` like this loads `.env` and activates the venv whenever you enter the directory:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+dotenv
+[[ -f .venv/bin/activate ]] && source .venv/bin/activate
 ```
+
+Add a dependency with `uv add <package>` (or `uv add --group dev <package>` for test-only tools); commit the updated `pyproject.toml` and `uv.lock` together. The GitHub workflows install with `uv sync --frozen`, so they fail loudly if the lock file is stale.
 
 ### Configure
 
@@ -240,8 +243,8 @@ The agent runs daily at 9am and on login/wake. It pulls the repo and rsyncs `not
 Trigger either workflow from the GitHub Actions tab ("Run workflow"), or run the scripts locally:
 
 ```bash
-python3 ingest_cloud.py
-python3 digest_cloud.py
+uv run python ingest_cloud.py
+uv run python digest_cloud.py
 ```
 
 A plain local `digest_cloud.py` run sends the email to the full audience. See [Testing](#testing) for the safe ways to try changes.
@@ -280,8 +283,7 @@ Four layers, from cheapest to most realistic. Run the unit tests before every de
 ### 1. Unit tests
 
 ```bash
-pip install pytest
-python -m pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ### 2. Local dry run (no email)
@@ -289,7 +291,7 @@ python -m pytest tests/ -v
 Runs the real pipeline against the real feeds and cached notes, but skips the send:
 
 ```bash
-SKIP_EMAIL=1 python3 digest_cloud.py
+SKIP_EMAIL=1 uv run python digest_cloud.py
 ```
 
 This writes `notes/Digests/<date> PM Pulse Weekly Digest.md` and rewrites `notes/Digests/latest-digest.json` (the HTML used for welcome emails). Open the markdown, or extract the HTML from the JSON and open it in a browser. Restore the files afterwards if you don't want to commit a local run:
@@ -301,7 +303,7 @@ git checkout -- notes/Digests/latest-digest.json
 ### 3. Send a real email to yourself only
 
 ```bash
-python3 digest_cloud.py --to you@example.com
+uv run python digest_cloud.py --to you@example.com
 ```
 
 The `--to` flag replaces the recipient list and skips the Resend audience. This is what the workflow's `test_to` input calls under the hood.
