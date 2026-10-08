@@ -5,6 +5,11 @@ on:
     # Friday 2pm UTC = Friday 9am ET
     - cron: '0 14 * * 5'
   workflow_dispatch: # Allow manual trigger
+    inputs:
+      test_to:
+        description: "Test run: send only to these addresses (space-separated); skips the audience and the commit"
+        required: false
+        default: ""
 
 jobs:
   digest:
@@ -29,9 +34,16 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_AUDIENCE_ID: ${{ secrets.RESEND_AUDIENCE_ID }}
-        run: python digest_cloud.py
+          TEST_TO: ${{ inputs.test_to }}
+        run: |
+          if [ -n "$TEST_TO" ]; then
+            python digest_cloud.py --to $TEST_TO
+          else
+            python digest_cloud.py
+          fi
 
       - name: Commit notes and digest
+        if: inputs.test_to == ''
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

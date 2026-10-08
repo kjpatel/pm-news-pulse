@@ -963,7 +963,8 @@ class TestAnnotateTrending:
         stories = [{"title": "Cool Post", "score": 500, "comments": 120}]
 
         mock_resp = MagicMock()
-        mock_resp.content = [MagicMock(text='{"repos": ["Great for PMs building AI products."], "hn_stories": ["Signals a shift in dev tooling."]}')]
+        mock_resp.stop_reason = "end_turn"
+        mock_resp.content = [MagicMock(type="text", text='{"repos": ["Great for PMs building AI products."], "hn_stories": ["Signals a shift in dev tooling."]}')]
 
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_resp
