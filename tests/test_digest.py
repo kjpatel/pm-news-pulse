@@ -36,6 +36,11 @@ class TestBuildFeedHomepageMap:
         result = build_feed_homepage_map(feeds)
         assert result == {"Blog": "https://blog.com"}
 
+    def test_strips_sitemap_xml(self):
+        feeds = [{"name": "GU", "url": "https://www.growthunhinged.com/sitemap.xml", "type": "sitemap"}]
+        result = build_feed_homepage_map(feeds)
+        assert result == {"GU": "https://www.growthunhinged.com"}
+
     def test_multiple_feeds(self):
         feeds = [
             {"name": "A", "url": "https://a.com/feed"},

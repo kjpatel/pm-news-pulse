@@ -101,12 +101,6 @@
       "author": "Sequoia Capital"
     },
     {
-      "name": "Both Sides of the Table",
-      "url": "https://bothsidesofthetable.com/feed",
-      "seen_file": "seen_mark_suster.json",
-      "author": "Mark Suster"
-    },
-    {
       "name": "Hunter Walk",
       "url": "https://hunterwalk.com/feed/",
       "seen_file": "seen_hunter_walk.json",
@@ -141,6 +135,13 @@
       "url": "https://www.producttalk.org/feed/",
       "seen_file": "seen_product_talk.json",
       "author": "Teresa Torres"
+    },
+    {
+      "name": "Growth Unhinged",
+      "url": "https://www.growthunhinged.com/sitemap.xml",
+      "type": "sitemap",
+      "seen_file": "seen_growth_unhinged.json",
+      "author": "Kyle Poyar"
     }
   ]
 }

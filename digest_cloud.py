@@ -21,10 +21,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import anthropic
-import feedparser
 import httpx
 import resend
 from bs4 import BeautifulSoup
+
+from feedfetch import fetch_feed_entries
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_PATH = SCRIPT_DIR / "config.json"
@@ -57,67 +58,9 @@ def load_config() -> dict:
 
 
 
-FEED_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-    ),
-    "Accept": (
-        "application/rss+xml, application/atom+xml, application/xml;q=0.9, "
-        "text/xml;q=0.8, */*;q=0.5"
-    ),
-}
-
-
-def parse_feed(feed_url: str):
-    """Download a feed with browser-like headers and parse it with feedparser.
-
-    Substack's bare *.substack.com domains (and some Cloudflare-fronted sites)
-    answer feedparser's default User-Agent from datacenter IPs such as GitHub
-    Actions runners with an empty or challenge page. That used to look like
-    "no new articles" and silently skipped those feeds for months. Fetch with
-    httpx and browser headers, hand the bytes to feedparser, and warn loudly
-    when a feed comes back empty so a blocked feed is visible in the logs.
-    """
-    try:
-        resp = httpx.get(
-            feed_url, headers=FEED_HEADERS, timeout=30, follow_redirects=True,
-        )
-        if resp.status_code != 200:
-            log.warning(f"Feed {feed_url} returned HTTP {resp.status_code}")
-        feed = feedparser.parse(resp.content)
-    except httpx.HTTPError as e:
-        log.warning(f"Feed download failed for {feed_url} ({e}); retrying via feedparser")
-        feed = feedparser.parse(feed_url)
-
-    if not feed.entries:
-        reason = getattr(feed, "bozo_exception", None)
-        log.warning(
-            f"Feed {feed_url} returned no entries"
-            + (f" ({reason})" if reason else "")
-            + " - the feed may be blocked or moved"
-        )
-    return feed
-
-def fetch_feed(feed_url: str) -> list[dict]:
-    """Parse RSS feed and return list of article entries."""
-    feed = parse_feed(feed_url)
-    articles = []
-    for entry in feed.entries:
-        published = ""
-        published_iso = ""
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
-            dt = datetime(*entry.published_parsed[:6])
-            published = dt.strftime("%b %d, %Y")
-            published_iso = dt.strftime("%Y-%m-%d")
-        articles.append({
-            "title": entry.get("title", "Untitled"),
-            "url": entry.get("link", ""),
-            "published": published,
-            "published_iso": published_iso,
-            "description": entry.get("summary", ""),
-        })
-    return articles
+def fetch_feed(feed_url: str, feed_type: str = "rss") -> list[dict]:
+    """Fetch a feed (RSS or sitemap, see feedfetch.py) as a list of article dicts."""
+    return fetch_feed_entries(feed_url, feed_type, days=30)
 
 
 def fetch_article_content(url: str) -> str:
@@ -232,7 +175,7 @@ def collect_recent_articles(feeds: list[dict], days: int = 7) -> list[dict]:
         log.info(f"Fetching feed: {feed_name}")
 
         try:
-            feed_articles = fetch_feed(feed_config["url"])
+            feed_articles = fetch_feed(feed_config["url"], feed_config.get("type", "rss"))
         except Exception as e:
             log.warning(f"Failed to fetch feed {feed_name}: {e}")
             continue
@@ -716,7 +659,7 @@ def build_feed_homepage_map(feeds: list[dict]) -> dict[str, str]:
     result = {}
     for feed in feeds:
         url = re.sub(r"/feed/?$", "", feed["url"])
-        url = re.sub(r"/index\.xml$", "", url)
+        url = re.sub(r"/(index\.xml|sitemap\.xml)$", "", url)
         result[feed["name"]] = url
     return result
 

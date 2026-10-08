@@ -275,40 +275,25 @@ class TestProcessFeed:
         mock_save_seen.assert_not_called()
 
 
-class TestParseFeed:
-    RSS = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
-<item><title>Post One</title><link>https://example.com/1</link>
-<pubDate>Mon, 05 Oct 2026 10:00:00 GMT</pubDate></item></channel></rss>"""
 
-    @patch("ingest_cloud.httpx.get")
-    def test_downloads_with_browser_user_agent(self, mock_get):
-        from ingest_cloud import parse_feed, FEED_HEADERS
-        mock_get.return_value = MagicMock(status_code=200, content=self.RSS)
-        feed = parse_feed("https://lg.substack.com/feed")
-        assert len(feed.entries) == 1
-        assert feed.entries[0].title == "Post One"
-        kwargs = mock_get.call_args.kwargs
-        assert kwargs["headers"] is FEED_HEADERS
-        assert "Mozilla/5.0" in FEED_HEADERS["User-Agent"]
-        assert kwargs["follow_redirects"] is True
+class TestProcessFeedFeedType:
+    @patch("ingest_cloud.save_seen")
+    @patch("ingest_cloud.fetch_feed")
+    @patch("ingest_cloud.load_seen")
+    def test_passes_feed_type_to_fetch_feed(self, mock_load_seen, mock_fetch_feed, mock_save_seen):
+        from ingest_cloud import process_feed
+        mock_load_seen.return_value = set()
+        mock_fetch_feed.return_value = []
+        feed_config = {"name": "GU", "url": "https://x.com/sitemap.xml", "type": "sitemap", "seen_file": "s.json"}
+        process_feed(feed_config, {}, MagicMock(), [])
+        mock_fetch_feed.assert_called_once_with("https://x.com/sitemap.xml", "sitemap")
 
-    @patch("ingest_cloud.feedparser.parse")
-    @patch("ingest_cloud.httpx.get")
-    def test_falls_back_to_feedparser_on_http_error(self, mock_get, mock_parse):
-        import httpx
-        from ingest_cloud import parse_feed
-        mock_get.side_effect = httpx.HTTPError("boom")
-        mock_parse.return_value = MagicMock(entries=[1])
-        feed = parse_feed("https://example.com/feed")
-        mock_parse.assert_called_once_with("https://example.com/feed")
-        assert feed.entries == [1]
-
-    @patch("ingest_cloud.httpx.get")
-    def test_warns_when_feed_is_empty(self, mock_get, caplog):
-        from ingest_cloud import parse_feed
-        mock_get.return_value = MagicMock(status_code=403, content=b"<html>blocked</html>")
-        with caplog.at_level("WARNING"):
-            feed = parse_feed("https://blocked.example.com/feed")
-        assert feed.entries == []
-        assert "HTTP 403" in caplog.text
-        assert "returned no entries" in caplog.text
+    @patch("ingest_cloud.save_seen")
+    @patch("ingest_cloud.fetch_feed")
+    @patch("ingest_cloud.load_seen")
+    def test_defaults_to_rss(self, mock_load_seen, mock_fetch_feed, mock_save_seen):
+        from ingest_cloud import process_feed
+        mock_load_seen.return_value = set()
+        mock_fetch_feed.return_value = []
+        process_feed({"name": "F", "url": "https://x.com/feed", "seen_file": "s.json"}, {}, MagicMock(), [])
+        mock_fetch_feed.assert_called_once_with("https://x.com/feed", "rss")
