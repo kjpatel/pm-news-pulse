@@ -36,7 +36,7 @@ Everything runs in the cloud via GitHub Actions — no local machine dependency.
 
 Runs daily at 8am ET via GitHub Actions:
 
-1. Fetches the 22 configured feeds (RSS, or a sitemap for sites without RSS) through a browser-impersonating HTTP client; Substack's bare `*.substack.com` domains answer plain clients from GitHub runners with a Cloudflare 403, and an empty feed is logged as a warning rather than passed off as "no new articles"
+1. Fetches the 22 configured feeds (RSS, or a sitemap for sites without RSS). Substack's bare `*.substack.com` domains answer GitHub runners with a Cloudflare 403 whatever the client looks like, so a blocked fetch is retried through the [feed proxy](#feed-proxy-google-cloud-run) on Google Cloud Run. An empty feed is logged as a warning rather than passed off as "no new articles"
 2. Detects new articles by comparing against per-feed seen trackers (`seen/seen_*.json`); articles older than 30 days are skipped so a newly added feed does not pull its whole back-catalog
 3. Fetches full article content (not just the RSS excerpt)
 4. Calls Claude to generate a structured summary, key takeaways, author attribution, and cross-links to existing notes
@@ -135,7 +135,8 @@ The prompt receives the overview sections from the previous three digests so it 
 ```
 ingest_cloud.py        Daily ingest: fetch feeds, summarize new articles, write notes
 digest_cloud.py        Weekly digest: rank the week's articles, build and send the email
-feedfetch.py           Shared feed download (browser-impersonating client), RSS and sitemap parsing
+feedfetch.py           Shared feed download (direct, then via the proxy on a 403), RSS and sitemap parsing
+proxy/                 Feed proxy: a small Flask service deployed to Cloud Run (see Setup)
 backfill_notes.py      One-off: generate notes for seen articles that have none (safe to re-run)
 config.json            Feeds, model, vault path, email settings
 notes/<Feed Name>/     Generated article notes (Obsidian markdown), one folder per feed
@@ -196,6 +197,23 @@ cp .env.example .env
    - `ANTHROPIC_API_KEY`
    - `RESEND_API_KEY`
    - `RESEND_AUDIENCE_ID`
+   - `FEED_PROXY_URL` and `FEED_PROXY_TOKEN` (see [Feed proxy](#feed-proxy-google-cloud-run))
+
+### Feed proxy (Google Cloud Run)
+
+Substack serves its bare `*.substack.com` feeds behind Cloudflare bot protection that rejects GitHub Actions' IP ranges with a 403, regardless of User-Agent or TLS fingerprint. Google Cloud egress is allowed through, so `proxy/` holds a ~60-line Flask service that fetches a feed on the runner's behalf. It requires a shared token in the `X-Proxy-Token` header, only fetches `https` URLs on allowlisted host suffixes (default `substack.com`, including after redirects), stores nothing, and scales to zero.
+
+`feedfetch.py` always tries the direct fetch first and only falls back to the proxy on a 403, 429 or 503 when `FEED_PROXY_URL` and `FEED_PROXY_TOKEN` are set, so local runs (where Substack is not blocked) never touch it, and the pipeline keeps working without the proxy for every other feed.
+
+It lives in its own GCP project, `nyxworks-pmpulse`, region `us-west1`. To deploy or redeploy:
+
+```bash
+gcloud run deploy pmpulse-feed-proxy --source proxy/ --project nyxworks-pmpulse --region us-west1 \
+  --allow-unauthenticated --max-instances 2 --memory 256Mi --timeout 60 \
+  --set-env-vars "PROXY_TOKEN=$(openssl rand -hex 32),ALLOWED_HOST_SUFFIXES=substack.com"
+```
+
+Then store the service URL and the same token as the `FEED_PROXY_URL` and `FEED_PROXY_TOKEN` repository secrets. `--allow-unauthenticated` is deliberate: the runner has no Google identity, and the token plus host allowlist are what gate the service. Rotate the token by redeploying with a new value and updating the secret.
 
 ### Local Vault Sync
 

@@ -31,7 +31,7 @@ class TestFetchUrl:
         fake = MagicMock()
         fake.get.return_value = MagicMock(status_code=200, content=b"body")
         with patch("feedfetch._curl_requests", fake):
-            assert fetch_url("https://lg.substack.com/feed") == (200, b"body")
+            assert feedfetch._direct_fetch("https://lg.substack.com/feed") == (200, b"body")
         assert fake.get.call_args.kwargs["impersonate"] == "chrome"
         mock_httpx.assert_not_called()
 
@@ -40,7 +40,7 @@ class TestFetchUrl:
         fake = MagicMock(); fake.get.side_effect = RuntimeError("tls")
         mock_httpx.return_value = MagicMock(status_code=200, content=b"ok")
         with patch("feedfetch._curl_requests", fake):
-            assert fetch_url("https://x.com/feed") == (200, b"ok")
+            assert feedfetch._direct_fetch("https://x.com/feed") == (200, b"ok")
         kwargs = mock_httpx.call_args.kwargs
         assert "Mozilla/5.0" in kwargs["headers"]["User-Agent"]
         assert kwargs["follow_redirects"] is True
@@ -49,7 +49,48 @@ class TestFetchUrl:
     def test_uses_httpx_when_curl_cffi_missing(self, mock_httpx):
         mock_httpx.return_value = MagicMock(status_code=200, content=b"ok")
         with patch("feedfetch._curl_requests", None):
-            assert fetch_url("https://x.com/feed") == (200, b"ok")
+            assert feedfetch._direct_fetch("https://x.com/feed") == (200, b"ok")
+
+
+class TestFeedProxyFallback:
+    @patch("feedfetch.httpx.get")
+    @patch("feedfetch._direct_fetch", return_value=(403, b"blocked"))
+    def test_retries_through_proxy_on_403(self, _, mock_httpx, monkeypatch):
+        monkeypatch.setenv("FEED_PROXY_URL", "https://proxy.example.run.app/")
+        monkeypatch.setenv("FEED_PROXY_TOKEN", "sekrit")
+        mock_httpx.return_value = MagicMock(status_code=200, content=RSS)
+        assert fetch_url("https://lg.substack.com/feed") == (200, RSS)
+        args, kwargs = mock_httpx.call_args
+        assert args[0] == "https://proxy.example.run.app/fetch"
+        assert kwargs["params"] == {"url": "https://lg.substack.com/feed"}
+        assert kwargs["headers"] == {"X-Proxy-Token": "sekrit"}
+
+    @patch("feedfetch.httpx.get")
+    @patch("feedfetch._direct_fetch", return_value=(200, b"fine"))
+    def test_no_proxy_when_direct_succeeds(self, _, mock_httpx, monkeypatch):
+        monkeypatch.setenv("FEED_PROXY_URL", "https://proxy.example.run.app")
+        monkeypatch.setenv("FEED_PROXY_TOKEN", "sekrit")
+        assert fetch_url("https://x.com/feed") == (200, b"fine")
+        mock_httpx.assert_not_called()
+
+    @patch("feedfetch.httpx.get")
+    @patch("feedfetch._direct_fetch", return_value=(403, b"blocked"))
+    def test_no_proxy_when_unconfigured(self, _, mock_httpx, monkeypatch):
+        monkeypatch.delenv("FEED_PROXY_URL", raising=False)
+        monkeypatch.delenv("FEED_PROXY_TOKEN", raising=False)
+        assert fetch_url("https://lg.substack.com/feed") == (403, b"blocked")
+        mock_httpx.assert_not_called()
+
+    @patch("feedfetch.httpx.get")
+    @patch("feedfetch._direct_fetch", return_value=(403, b"blocked"))
+    def test_keeps_direct_result_when_proxy_errors(self, _, mock_httpx, monkeypatch, caplog):
+        import httpx
+        monkeypatch.setenv("FEED_PROXY_URL", "https://proxy.example.run.app")
+        monkeypatch.setenv("FEED_PROXY_TOKEN", "sekrit")
+        mock_httpx.side_effect = httpx.HTTPError("down")
+        with caplog.at_level("WARNING"):
+            assert fetch_url("https://lg.substack.com/feed") == (403, b"blocked")
+        assert "Feed proxy request failed" in caplog.text
 
 
 class TestParseFeed:

@@ -8,15 +8,17 @@ Two kinds of source are supported, selected by the feed's "type" in config.json:
   titles come from the sitemap's <news:title> when present and otherwise from
   the page's og:title.
 
-Downloads go through curl_cffi with Chrome impersonation when it is installed.
-Substack's bare *.substack.com domains answer plain HTTP clients from
-datacenter IPs (GitHub Actions runners) with a Cloudflare 403 even when the
-User-Agent looks like a browser; a browser TLS fingerprint gets through.
-httpx with browser-like headers is the fallback.
+Downloads go through curl_cffi with Chrome impersonation when it is installed,
+with httpx as the fallback. Substack's bare *.substack.com domains answer
+GitHub Actions runners with a Cloudflare 403 regardless of headers or TLS
+fingerprint (it is IP reputation), so when a direct fetch is blocked and
+FEED_PROXY_URL / FEED_PROXY_TOKEN are set, the fetch is retried through the
+feed proxy in proxy/ (a Cloud Run service, whose Google egress is allowed).
 """
 
 import html
 import logging
+import os
 import re
 from datetime import datetime, timedelta
 
@@ -45,12 +47,33 @@ ARTICLE_PATH_MARKER = "/p/"   # beehiiv and Substack post URLs live under /p/
 MAX_SITEMAP_PAGES = 20        # cap on page fetches needed to recover titles
 
 
+BLOCKED_STATUSES = {403, 429, 503}
+
+
 def fetch_url(url: str, timeout: int = 30) -> tuple[int, bytes]:
     """Download a URL and return (status_code, body bytes).
 
-    Uses curl_cffi's Chrome impersonation when available (it sets its own
-    browser headers to match the TLS fingerprint), falling back to httpx.
+    Fetches directly first; if the response looks like a bot block and a feed
+    proxy is configured, retries through the proxy (see proxy/main.py).
     """
+    status, content = _direct_fetch(url, timeout)
+    proxy_url = os.environ.get("FEED_PROXY_URL", "").rstrip("/")
+    proxy_token = os.environ.get("FEED_PROXY_TOKEN", "")
+    if status in BLOCKED_STATUSES and proxy_url and proxy_token:
+        log.info(f"Direct fetch of {url} got HTTP {status}; retrying through feed proxy")
+        try:
+            resp = httpx.get(
+                f"{proxy_url}/fetch", params={"url": url},
+                headers={"X-Proxy-Token": proxy_token}, timeout=timeout + 15,
+            )
+            return resp.status_code, resp.content
+        except httpx.HTTPError as e:
+            log.warning(f"Feed proxy request failed for {url} ({e}); keeping direct result")
+    return status, content
+
+
+def _direct_fetch(url: str, timeout: int = 30) -> tuple[int, bytes]:
+    """Fetch with curl_cffi's Chrome impersonation when available, else httpx."""
     if _curl_requests is not None:
         try:
             resp = _curl_requests.get(url, impersonate="chrome", timeout=timeout)
