@@ -142,6 +142,17 @@ def sanitize_filename(title: str) -> str:
     return cleaned
 
 
+def response_text(response) -> str:
+    """Join the text blocks of a Claude response.
+
+    Haiku 5.5 thinks by default, so the response can start with thinking
+    blocks; read blocks by type rather than position.
+    """
+    if response.stop_reason == "refusal":
+        raise RuntimeError(f"Claude declined the request: {response.stop_details}")
+    return "".join(b.text for b in response.content if b.type == "text")
+
+
 def generate_summary(
     client: anthropic.Anthropic,
     model: str,
@@ -179,11 +190,12 @@ Return ONLY valid JSON, no markdown fences or other text."""
 
     response = client.messages.create(
         model=model,
-        max_tokens=1024,
+        max_tokens=4096,
+        output_config={"effort": "low"},
         messages=[{"role": "user", "content": prompt}],
     )
 
-    text = response.content[0].text.strip()
+    text = response_text(response).strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
