@@ -21,10 +21,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import anthropic
-import feedparser
 import httpx
 import resend
 from bs4 import BeautifulSoup
+
+from feedfetch import fetch_feed_entries
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_PATH = SCRIPT_DIR / "config.json"
@@ -56,25 +57,10 @@ def load_config() -> dict:
         return json.load(f)
 
 
-def fetch_feed(feed_url: str) -> list[dict]:
-    """Parse RSS feed and return list of article entries."""
-    feed = feedparser.parse(feed_url)
-    articles = []
-    for entry in feed.entries:
-        published = ""
-        published_iso = ""
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
-            dt = datetime(*entry.published_parsed[:6])
-            published = dt.strftime("%b %d, %Y")
-            published_iso = dt.strftime("%Y-%m-%d")
-        articles.append({
-            "title": entry.get("title", "Untitled"),
-            "url": entry.get("link", ""),
-            "published": published,
-            "published_iso": published_iso,
-            "description": entry.get("summary", ""),
-        })
-    return articles
+
+def fetch_feed(feed_url: str, feed_type: str = "rss") -> list[dict]:
+    """Fetch a feed (RSS or sitemap, see feedfetch.py) as a list of article dicts."""
+    return fetch_feed_entries(feed_url, feed_type, days=30)
 
 
 def fetch_article_content(url: str) -> str:
@@ -189,7 +175,7 @@ def collect_recent_articles(feeds: list[dict], days: int = 7) -> list[dict]:
         log.info(f"Fetching feed: {feed_name}")
 
         try:
-            feed_articles = fetch_feed(feed_config["url"])
+            feed_articles = fetch_feed(feed_config["url"], feed_config.get("type", "rss"))
         except Exception as e:
             log.warning(f"Failed to fetch feed {feed_name}: {e}")
             continue
@@ -256,7 +242,7 @@ Return ONLY valid JSON, no markdown fences or other text."""
 
     response = client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=16000,
         output_config={"effort": "low"},
         messages=[{"role": "user", "content": prompt}],
     )
@@ -293,17 +279,76 @@ TOPIC_TAGS = [
 ]
 
 
+def load_prior_digest_themes(weeks: int = 3, exclude_date: str = "") -> list[dict]:
+    """Load the "This Week" section from the most recent weekly digests.
+
+    Returns a list (newest first) of dicts with "date", "headline" and
+    "themes" (plain-text bullet strings, markdown links stripped). Used to give
+    the ranking prompt context on what prior weeks covered so it can flag
+    continuing threads instead of treating every theme as new.
+    """
+    digest_dir = NOTES_DIR / "Digests"
+    if not digest_dir.exists():
+        return []
+
+    files = sorted(digest_dir.glob("*.md"), key=lambda f: f.name, reverse=True)
+    prior = []
+    for md_file in files:
+        name = md_file.stem
+        if len(name) < 10 or not name[:4].isdigit():
+            continue
+        file_date = name[:10]
+        if exclude_date and file_date == exclude_date:
+            continue
+
+        try:
+            text = md_file.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        headline = ""
+        themes: list[str] = []
+        in_section = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped == "## This Week":
+                in_section = True
+                continue
+            if in_section and stripped.startswith("## "):
+                break
+            if not in_section or not stripped:
+                continue
+            if stripped.startswith("**") and stripped.endswith("**") and not headline:
+                headline = stripped[2:-2]
+            elif stripped.startswith("- "):
+                bullet = stripped[2:]
+                # Drop trailing source links and markdown link syntax
+                bullet = re.split(r"\s+Sources?:\s", bullet)[0]
+                bullet = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", bullet)
+                bullet = bullet.replace("**", "").replace("*", "").strip()
+                themes.append(bullet)
+
+        if headline or themes:
+            prior.append({"date": file_date, "headline": headline, "themes": themes})
+        if len(prior) >= weeks:
+            break
+
+    return prior
+
+
 def generate_ranking(
     client: anthropic.Anthropic,
     model: str,
     articles: list[dict],
+    prior_themes: list[dict] | None = None,
 ) -> dict:
     """Rank articles by strategic relevance using Claude.
 
     Returns a dict with:
-    - "weekly_headline": one punchy sentence framing the week
-    - "weekly_overview": 90-140 word editorial paragraph
-    - "weekly_themes": list of 3-5 short theme bullets
+    - "weekly_headline": one sentence describing what this week's writers focus on
+    - "weekly_overview": 2-3 attributed sentences on the common threads
+    - "weekly_themes": list of theme dicts (theme, observation, article_indices,
+      status, thread_note); legacy string bullets are also accepted downstream
     - "articles": ranked list of article dicts with tags
     """
     articles_text = ""
@@ -314,12 +359,23 @@ def generate_ranking(
             f"Summary: {a['summary']}\n"
         )
 
+    prior_text = ""
+    if prior_themes:
+        prior_text = "\n\nFor context, here is what the previous weeks' digests covered (newest first):\n"
+        for p in prior_themes:
+            prior_text += f"\nWeek of {p['date']}"
+            if p.get("headline"):
+                prior_text += f" — {p['headline']}"
+            prior_text += "\n"
+            for t in p.get("themes", []):
+                prior_text += f"  - {t}\n"
+
     tags_list = ", ".join(TOPIC_TAGS)
 
     prompt = f"""You are helping a VP of Product at a Series C venture-funded B2B SaaS startup prioritize their weekly reading.
 
 Here are {len(articles)} new articles from PM newsletters this week:
-{articles_text}
+{articles_text}{prior_text}
 
 Rank ALL articles by strategic relevance to this leader's priorities:
 - Scaling product org & team
@@ -330,11 +386,16 @@ Rank ALL articles by strategic relevance to this leader's priorities:
 
 Return a JSON object with these fields:
 
-1. "weekly_headline": One punchy sentence that frames the week for senior product leaders. Not a summary — a thesis.
+1. "weekly_headline": One sentence describing what this week's writers are collectively focused on. Describe the conversation, not the world: say what the articles are about, not what is true of the industry. Do not state any author's argument as fact.
 
-2. "weekly_overview": A single paragraph of 90–140 words. Synthesize this week's articles into an editorial summary. Identify the 2–4 biggest recurring themes, explain the key tension or shift, and make clear why it matters for PMs. Sound like an editor, not a summarizer. Avoid article-by-article recap, hype, clichés, and vague statements. Use short, concrete language.
+2. "weekly_overview": 2–3 sentences, hard limit 60 words. Name the 2–3 most common threads across this week's articles and who is pushing each one, using author or publication names. Note where writers disagree or emphasize different things. Every claim must be attributed to a named source. Never merge several writers' arguments into one unattributed thesis, and never present an author's prediction or opinion as settled fact. Use hedged verbs: argues, claims, predicts, reports, describes.
 
-3. "weekly_themes": An array of 3–5 short bullet-point strings (each on its own line in the array). Each should name a theme and add a brief observation (e.g. "AI tooling is moving from demo to deployment — and PMs are expected to own the integration"). NOT tags — these are editorial observations.
+3. "weekly_themes": An array of 3–5 objects, ordered by how many articles support them. Each object has:
+   - "theme": a 3–7 word label for the thread (e.g. "Agents moving from demo to production")
+   - "observation": 1–2 sentences, hard limit 40 words, on what the articles say about it, attributed by name (e.g. "Tunguz argues X; Thompson's Stratechery pieces make a related case about Y"). Attributed and hedged, not asserted as fact. Do not restate the sources list in prose.
+   - "article_indices": the index numbers of the articles that support this theme. Prefer 2 or more; a single article is fine only for a major announcement or movement.
+   - "status": "continuing" if this extends a thread from the previous weeks listed above, otherwise "new".
+   - "thread_note": only when status is "continuing": one clause, at most 20 words, on how it has evolved (e.g. "third week running; last week framed as evals and cost, this week as distribution"). Omit otherwise.
 
 4. "articles": A JSON array where each element has:
    - "index": the original article index number
@@ -349,7 +410,7 @@ Sort articles by rank (1 first). Return ONLY valid JSON, no markdown fences or o
     log.info(f"Ranking {len(articles)} articles...")
     response = client.messages.create(
         model=model,
-        max_tokens=8192,
+        max_tokens=16000,
         output_config={"effort": "low"},
         messages=[{"role": "user", "content": prompt}],
     )
@@ -490,7 +551,7 @@ Return ONLY valid JSON, no markdown fences or other text."""
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=16000,
             output_config={"effort": "low"},
             messages=[{"role": "user", "content": prompt}],
         )
@@ -598,7 +659,7 @@ def build_feed_homepage_map(feeds: list[dict]) -> dict[str, str]:
     result = {}
     for feed in feeds:
         url = re.sub(r"/feed/?$", "", feed["url"])
-        url = re.sub(r"/index\.xml$", "", url)
+        url = re.sub(r"/(index\.xml|sitemap\.xml)$", "", url)
         result[feed["name"]] = url
     return result
 
@@ -644,7 +705,7 @@ def format_digest(
             lines.extend([f"**{weekly_headline}**", ""])
         lines.extend([weekly_overview, ""])
         for theme in weekly_themes:
-            lines.append(f"- {theme}")
+            lines.append(_format_theme_bullet(theme, articles))
         if weekly_themes:
             lines.append("")
 
@@ -731,6 +792,63 @@ def format_digest(
             lines.append("")
 
     return "\n".join(lines) + "\n"
+
+
+def _format_theme_bullet(theme, articles: list[dict]) -> str:
+    """Render one weekly theme as a markdown bullet.
+
+    Accepts either a legacy plain string or a dict with "theme",
+    "observation", "article_indices", "status" and "thread_note".
+    Dict themes get a bold label, attributed observation, a continuing-thread
+    note, and source links so the reader can go deeper.
+    """
+    if not isinstance(theme, dict):
+        return f"- {theme}"
+
+    label = str(theme.get("theme", "")).strip()
+    observation = str(theme.get("observation", "")).strip()
+    parts = []
+    if label and observation:
+        parts.append(f"**{label}** — {observation}")
+    elif label:
+        parts.append(f"**{label}**")
+    elif observation:
+        parts.append(observation)
+
+    note = str(theme.get("thread_note", "")).strip()
+    if theme.get("status") == "continuing":
+        if note and note[-1] not in ".!?":
+            note += "."
+        parts.append(f"*Continuing thread: {note}*" if note else "*Continuing thread from prior weeks.*")
+
+    links = []
+    seen_feeds: dict[str, int] = {}
+    indices = [i for i in theme.get("article_indices", []) if isinstance(i, int)]
+    for i in indices:
+        if i < 0 or i >= len(articles):
+            continue
+        a = articles[i]
+        if not a.get("url"):
+            continue
+        feed = a.get("feed_name") or "Source"
+        seen_feeds[feed] = seen_feeds.get(feed, 0) + 1
+        links.append((feed, a["url"], a.get("title", "")))
+
+    link_md = []
+    for feed, url, title in links:
+        if seen_feeds.get(feed, 0) > 1 and title:
+            short = title
+            if len(title) > 45:
+                cut = title[:45]
+                short = (cut[:cut.rfind(" ")] if " " in cut else cut).rstrip(" :,-—") + "…"
+            text = f"{feed}: {short}"
+        else:
+            text = feed
+        link_md.append(f"[{text}]({url})")
+    if link_md:
+        parts.append("Sources: " + " · ".join(link_md))
+
+    return "- " + " ".join(parts)
 
 
 def _md_links(text: str) -> str:
@@ -882,9 +1000,16 @@ def markdown_to_html(md: str) -> str:
                 continue
             # Theme bullets
             if stripped.startswith("- "):
-                text = stripped[2:]
+                text = _md_links(stripped[2:])
+                text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+                text = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<em>\1</em>", text)
+                text = re.sub(
+                    r"Sources: (.+)$",
+                    r'<span style="color:#7B7F8E;font-size:13px;">Sources: \1</span>',
+                    text,
+                )
                 html.append(
-                    f'<p style="margin:0 0 4px;padding-left:16px;font-size:14px;'
+                    f'<p style="margin:0 0 10px;padding-left:16px;font-size:14px;'
                     f'color:#444;line-height:1.5;">&bull; {text}</p>'
                 )
                 continue
@@ -1320,9 +1445,14 @@ def main():
         log.info("No articles with summaries. Skipping digest.")
         return
 
-    # Rank and format
+    # Rank and format (prior weeks' digests give context for continuing threads)
+    prior_themes = load_prior_digest_themes(
+        weeks=3, exclude_date=datetime.now().strftime("%Y-%m-%d"),
+    )
     try:
-        ranking_result = generate_ranking(client, config["model"], articles)
+        ranking_result = generate_ranking(
+            client, config["model"], articles, prior_themes=prior_themes,
+        )
     except Exception as e:
         log.warning(f"Failed to rank articles via AI: {e}")
         log.info("Using default chronological ordering instead")

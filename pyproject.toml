@@ -1,0 +1,27 @@
+[project]
+name = "pm-news-pulse"
+version = "0.1.0"
+description = "Fetches PM newsletters, summarizes them with Claude, and sends a ranked weekly digest"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+    "anthropic>=0.84,<1",
+    "feedparser>=6.0,<7",
+    "httpx>=0.28,<1",
+    "beautifulsoup4>=4.14,<5",
+    "resend>=2.23,<3",
+    "curl_cffi>=0.7,<1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "flask>=3.0,<4",   # for tests/test_proxy.py; the proxy itself pins deps in proxy/requirements.txt
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

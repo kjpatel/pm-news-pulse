@@ -273,3 +273,27 @@ class TestProcessFeed:
 
         assert result == 0
         mock_save_seen.assert_not_called()
+
+
+
+class TestProcessFeedFeedType:
+    @patch("ingest_cloud.save_seen")
+    @patch("ingest_cloud.fetch_feed")
+    @patch("ingest_cloud.load_seen")
+    def test_passes_feed_type_to_fetch_feed(self, mock_load_seen, mock_fetch_feed, mock_save_seen):
+        from ingest_cloud import process_feed
+        mock_load_seen.return_value = set()
+        mock_fetch_feed.return_value = []
+        feed_config = {"name": "GU", "url": "https://x.com/sitemap.xml", "type": "sitemap", "seen_file": "s.json"}
+        process_feed(feed_config, {}, MagicMock(), [])
+        mock_fetch_feed.assert_called_once_with("https://x.com/sitemap.xml", "sitemap")
+
+    @patch("ingest_cloud.save_seen")
+    @patch("ingest_cloud.fetch_feed")
+    @patch("ingest_cloud.load_seen")
+    def test_defaults_to_rss(self, mock_load_seen, mock_fetch_feed, mock_save_seen):
+        from ingest_cloud import process_feed
+        mock_load_seen.return_value = set()
+        mock_fetch_feed.return_value = []
+        process_feed({"name": "F", "url": "https://x.com/feed", "seen_file": "s.json"}, {}, MagicMock(), [])
+        mock_fetch_feed.assert_called_once_with("https://x.com/feed", "rss")

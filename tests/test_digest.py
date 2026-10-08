@@ -17,7 +17,9 @@ from digest_cloud import (
     fetch_trending_hn,
     fetch_trending_repos,
     format_digest,
+    generate_ranking,
     load_cached_notes,
+    load_prior_digest_themes,
     markdown_to_html,
     send_digest_email,
 )
@@ -33,6 +35,11 @@ class TestBuildFeedHomepageMap:
         feeds = [{"name": "Blog", "url": "https://blog.com/index.xml"}]
         result = build_feed_homepage_map(feeds)
         assert result == {"Blog": "https://blog.com"}
+
+    def test_strips_sitemap_xml(self):
+        feeds = [{"name": "GU", "url": "https://www.growthunhinged.com/sitemap.xml", "type": "sitemap"}]
+        result = build_feed_homepage_map(feeds)
+        assert result == {"GU": "https://www.growthunhinged.com"}
 
     def test_multiple_feeds(self):
         feeds = [
@@ -556,6 +563,182 @@ class TestFormatDigestWeeklyOverview:
         result = format_digest(articles, ranking_list, "Feb 28", "Mar 07, 2026")
         assert "Article 0" in result
         assert "## This Week" not in result
+
+    def _make_theme_ranking(self):
+        ranking = self._make_ranking_dict()
+        ranking["weekly_themes"] = [
+            {
+                "theme": "Agents moving to production",
+                "observation": "Gupta's interview and Tunguz both argue the hard part is approval gates.",
+                "article_indices": [0, 1],
+                "status": "continuing",
+                "thread_note": "third week running; last week framed as harness engineering",
+            },
+            {
+                "theme": "Model commoditization",
+                "observation": "Tunguz predicts falling prices push labs toward distribution.",
+                "article_indices": [2],
+                "status": "new",
+            },
+        ]
+        return ranking
+
+    def test_theme_dict_renders_label_and_observation(self):
+        result = format_digest(
+            self._make_articles(), self._make_theme_ranking(),
+            "Feb 28", "Mar 07, 2026",
+        )
+        assert "- **Agents moving to production** — Gupta's interview and Tunguz both argue" in result
+        assert "- **Model commoditization** — Tunguz predicts" in result
+
+    def test_theme_dict_renders_source_links(self):
+        result = format_digest(
+            self._make_articles(), self._make_theme_ranking(),
+            "Feb 28", "Mar 07, 2026",
+        )
+        # Two articles from the same feed get disambiguated with their titles
+        assert "Sources: [Feed: Article 0](https://example.com/0) · [Feed: Article 1](https://example.com/1)" in result
+        assert "Sources: [Feed](https://example.com/2)" in result
+
+    def test_theme_dict_renders_continuing_note(self):
+        result = format_digest(
+            self._make_articles(), self._make_theme_ranking(),
+            "Feb 28", "Mar 07, 2026",
+        )
+        assert "*Continuing thread: third week running; last week framed as harness engineering.*" in result
+        # The "new" theme gets no continuing marker
+        model_line = [l for l in result.splitlines() if "Model commoditization" in l][0]
+        assert "Continuing" not in model_line
+
+    def test_theme_dict_ignores_bad_indices(self):
+        ranking = self._make_theme_ranking()
+        ranking["weekly_themes"][1]["article_indices"] = [99, -1, "x", 2]
+        result = format_digest(
+            self._make_articles(), ranking, "Feb 28", "Mar 07, 2026",
+        )
+        assert "Sources: [Feed](https://example.com/2)" in result
+
+    def test_mixed_string_and_dict_themes(self):
+        ranking = self._make_theme_ranking()
+        ranking["weekly_themes"].append("Plain legacy theme")
+        result = format_digest(
+            self._make_articles(), ranking, "Feb 28", "Mar 07, 2026",
+        )
+        assert "- Plain legacy theme" in result
+
+    def test_theme_bullets_convert_to_html(self):
+        md = format_digest(
+            self._make_articles(), self._make_theme_ranking(),
+            "Feb 28", "Mar 07, 2026",
+        )
+        html = markdown_to_html(md)
+        assert "<strong>Agents moving to production</strong>" in html
+        assert '<a href="https://example.com/0">Feed: Article 0</a>' in html
+        assert "<em>Continuing thread: third week running" in html
+        assert "Sources: <a href" in html
+
+
+class TestLoadPriorDigestThemes:
+    DIGEST = """# PM Pulse: Weekly Digest — {date}
+
+5 articles from 2 feeds | Sep 25 – {date}
+
+---
+
+## This Week
+
+**{headline}**
+
+Overview paragraph here.
+
+- **Theme A** — Tunguz argues X. *Continuing thread: second week.* Sources: [Feed](https://x.com/1) · [Feed B](https://x.com/2)
+- Legacy theme B — plain observation
+
+---
+
+## Must-Read
+
+### 1. [Article](https://x.com/1)
+"""
+
+    def _write(self, tmp_path, date, headline="Headline"):
+        d = tmp_path / "Digests"
+        d.mkdir(exist_ok=True)
+        (d / f"{date} PM Pulse Weekly Digest.md").write_text(
+            self.DIGEST.format(date=date, headline=headline), encoding="utf-8",
+        )
+
+    def test_returns_empty_when_no_digests_dir(self, tmp_path):
+        with patch("digest_cloud.NOTES_DIR", tmp_path):
+            assert load_prior_digest_themes() == []
+
+    def test_parses_headline_and_themes(self, tmp_path):
+        self._write(tmp_path, "2026-10-02", "Agents everywhere")
+        with patch("digest_cloud.NOTES_DIR", tmp_path):
+            result = load_prior_digest_themes()
+        assert len(result) == 1
+        assert result[0]["date"] == "2026-10-02"
+        assert result[0]["headline"] == "Agents everywhere"
+        assert result[0]["themes"] == [
+            "Theme A — Tunguz argues X. Continuing thread: second week.",
+            "Legacy theme B — plain observation",
+        ]
+
+    def test_newest_first_and_limited_to_weeks(self, tmp_path):
+        for d in ["2026-09-11", "2026-09-18", "2026-09-25", "2026-10-02"]:
+            self._write(tmp_path, d, headline=d)
+        with patch("digest_cloud.NOTES_DIR", tmp_path):
+            result = load_prior_digest_themes(weeks=3)
+        assert [r["date"] for r in result] == ["2026-10-02", "2026-09-25", "2026-09-18"]
+
+    def test_excludes_given_date_and_non_digest_files(self, tmp_path):
+        self._write(tmp_path, "2026-10-02")
+        self._write(tmp_path, "2026-10-09")
+        (tmp_path / "Digests" / "latest-digest.json").write_text("{}")
+        with patch("digest_cloud.NOTES_DIR", tmp_path):
+            result = load_prior_digest_themes(exclude_date="2026-10-09")
+        assert [r["date"] for r in result] == ["2026-10-02"]
+
+
+class TestGenerateRankingPrompt:
+    def _client(self):
+        client = MagicMock()
+        msg = MagicMock()
+        msg.stop_reason = "end_turn"
+        msg.content = [MagicMock(
+            type="text",
+            text='{"weekly_headline": "h", "weekly_overview": "o", "weekly_themes": [], "articles": []}',
+        )]
+        client.messages.create.return_value = msg
+        return client
+
+    def _articles(self):
+        return [{"title": "T0", "feed_name": "F", "author": "A", "date": "D", "summary": "S0"}]
+
+    def test_prompt_includes_prior_weeks(self):
+        client = self._client()
+        prior = [{"date": "2026-10-02", "headline": "Old headline", "themes": ["Old theme one"]}]
+        generate_ranking(client, "model", self._articles(), prior_themes=prior)
+        prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "previous weeks' digests" in prompt
+        assert "Week of 2026-10-02 — Old headline" in prompt
+        assert "  - Old theme one" in prompt
+
+    def test_prompt_omits_prior_block_when_none(self):
+        client = self._client()
+        generate_ranking(client, "model", self._articles())
+        prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "previous weeks' digests" not in prompt
+
+    def test_prompt_asks_for_attributed_structured_themes(self):
+        client = self._client()
+        result = generate_ranking(client, "model", self._articles())
+        prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert '"article_indices"' in prompt
+        assert '"status"' in prompt
+        assert "attributed" in prompt.lower()
+        assert "not what is true of the industry" in prompt
+        assert result["weekly_headline"] == "h"
 
 
 class TestFetchTrendingRepos:

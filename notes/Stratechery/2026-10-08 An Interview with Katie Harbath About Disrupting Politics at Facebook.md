@@ -7,17 +7,18 @@
 
 ## Summary
 
-This Stratechery interview with former Facebook Head of Global Elections Katie Harbath accompanies her book Disrupting Politics and examines how Facebook's approach to political content and elections changed through the 2010s. The full transcript is behind a paywall, so this analysis relies on the published description.
+This Stratechery interview with former Facebook Head of Global Elections Katie Harbath, about her book Disrupting Politics, examines how Facebook's approach to political content and elections changed during the 2010s. The paywalled page shows only the description, so this summary is based on that description rather than the full transcript.
 
 ## Key Takeaways
 
-- **Map platform election policy shifts over time:** Trace how Facebook's rules for political ads, election integrity, and political speech changed across the 2010s to see how policy decisions were driven by events rather than fixed principles.
-- **Study the trust-and-safety tradeoffs at scale:** Compare how a platform balances free expression, political pressure, and enforcement when moderating political content for billions of users, and note where those tradeoffs were made under pressure.
-- **Read Disrupting Politics for an insider account:** Use Harbath's first-hand perspective as a primary source on how election teams were built, staffed, and escalated inside a major platform.
-- **Apply lessons to current AI platforms:** Consider how the same questions of political content, election safeguards, and ad policy now apply to AI assistants and generative content platforms, and draft policies before an election cycle forces them.
+- **Map platform election policy changes against the 2010s timeline** - Trace how Facebook's election integrity decisions evolved year by year to understand how platform governance responds to political pressure.
+- **Treat political content moderation as an organizational problem** - Assess whether your team has clear ownership, escalation paths, and decision authority for high-stakes content calls before a crisis arrives.
+- **Study the tradeoffs between growth and integrity** - Document the product decisions where engagement incentives conflicted with civic risk, so you can anticipate similar conflicts in your own platform.
+- **Read the book's insider account for operational lessons** - Use Harbath's firsthand experience to build checklists for election-season readiness, including partner coordination and rapid response.
+- **Apply the lessons to AI-driven platforms** - Consider how the political-speech and misinformation challenges Facebook faced will reappear as AI generates and distributes content at scale, and plan policies early.
 
 ## Related
 
 - [[2026-09-24 An Interview with Colossus EIC Jeremy Stern About Profiling Mark Zuckerberg]]
-- [[2026-08-31 Meta Settles, A Framework For Regulating Content, The Rest of Big Tech]]
 - [[2026-10-01 An Interview with Jason Del Rey About Muse, Amazon, and Walmart]]
+- [[2026-09-29 One More Note on Agents, Meta Connect, Meta Enterprise Platform]]

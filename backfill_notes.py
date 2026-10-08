@@ -18,9 +18,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import anthropic
-import feedparser
 import httpx
 from bs4 import BeautifulSoup
+
+from feedfetch import fetch_feed_entries
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_PATH = SCRIPT_DIR / "config.json"
@@ -87,28 +88,9 @@ def get_existing_note_titles() -> list[str]:
     return notes
 
 
-def fetch_article_metadata(feed_url: str) -> dict[str, dict]:
-    """Fetch RSS feed and return a map of URL -> article metadata."""
-    feed = feedparser.parse(feed_url)
-    articles = {}
-    for entry in feed.entries:
-        url = entry.get("link", "")
-        if not url:
-            continue
-        published = ""
-        published_iso = ""
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
-            dt = datetime(*entry.published_parsed[:6])
-            published = dt.strftime("%b %d, %Y")
-            published_iso = dt.strftime("%Y-%m-%d")
-        articles[url] = {
-            "title": entry.get("title", "Untitled"),
-            "url": url,
-            "published": published,
-            "published_iso": published_iso,
-            "description": entry.get("summary", ""),
-        }
-    return articles
+def fetch_article_metadata(feed_url: str, feed_type: str = "rss") -> dict[str, dict]:
+    """Fetch a feed (RSS or sitemap) and return a map of URL -> article metadata."""
+    return {a["url"]: a for a in fetch_feed_entries(feed_url, feed_type, days=30) if a.get("url")}
 
 
 def fetch_article_content(url: str) -> str:
@@ -190,7 +172,7 @@ Return ONLY valid JSON, no markdown fences or other text."""
 
     response = client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=16000,
         output_config={"effort": "low"},
         messages=[{"role": "user", "content": prompt}],
     )
@@ -270,7 +252,7 @@ def main():
 
         # Fetch RSS to get metadata (title, date) for the missing URLs
         try:
-            rss_articles = fetch_article_metadata(feed_config["url"])
+            rss_articles = fetch_article_metadata(feed_config["url"], feed_config.get("type", "rss"))
         except Exception as e:
             log.warning(f"Failed to fetch RSS for {feed_name}: {e}")
             rss_articles = {}

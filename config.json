@@ -35,12 +35,6 @@
       "author": "Julie Zhuo"
     },
     {
-      "name": "Brian Balfour",
-      "url": "https://blog.brianbalfour.com/feed",
-      "seen_file": "seen_brian_balfour.json",
-      "author": "Brian Balfour"
-    },
-    {
       "name": "Shreyas Doshi",
       "url": "https://shreyasdoshi.substack.com/feed",
       "seen_file": "seen_shreyas_doshi.json",
@@ -107,12 +101,6 @@
       "author": "Sequoia Capital"
     },
     {
-      "name": "Both Sides of the Table",
-      "url": "https://bothsidesofthetable.com/feed",
-      "seen_file": "seen_mark_suster.json",
-      "author": "Mark Suster"
-    },
-    {
       "name": "Hunter Walk",
       "url": "https://hunterwalk.com/feed/",
       "seen_file": "seen_hunter_walk.json",
@@ -123,6 +111,37 @@
       "url": "https://tomtunguz.com/index.xml",
       "seen_file": "seen_tomasz_tunguz.json",
       "author": "Tomasz Tunguz"
+    },
+    {
+      "name": "The Skip",
+      "url": "https://theskip.substack.com/feed",
+      "seen_file": "seen_the_skip.json",
+      "author": "Nikhyl Singhal"
+    },
+    {
+      "name": "Run the Business",
+      "url": "https://runthebusiness.substack.com/feed",
+      "seen_file": "seen_run_the_business.json",
+      "author": "Ibrahim Bashir"
+    },
+    {
+      "name": "One Useful Thing",
+      "url": "https://www.oneusefulthing.org/feed",
+      "seen_file": "seen_one_useful_thing.json",
+      "author": "Ethan Mollick"
+    },
+    {
+      "name": "Product Talk",
+      "url": "https://www.producttalk.org/feed/",
+      "seen_file": "seen_product_talk.json",
+      "author": "Teresa Torres"
+    },
+    {
+      "name": "Growth Unhinged",
+      "url": "https://www.growthunhinged.com/sitemap.xml",
+      "type": "sitemap",
+      "seen_file": "seen_growth_unhinged.json",
+      "author": "Kyle Poyar"
     }
   ]
 }
