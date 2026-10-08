@@ -37,7 +37,7 @@ Everything runs in the cloud via GitHub Actions — no local machine dependency.
 Runs daily at 8am ET via GitHub Actions:
 
 1. Parses RSS feeds from 22 configured newsletters, fetched with a browser User-Agent (Substack's bare `*.substack.com` domains return empty feeds to the default one from GitHub runners)
-2. Detects new articles by comparing against per-feed seen trackers (`seen_*.json`)
+2. Detects new articles by comparing against per-feed seen trackers (`seen/seen_*.json`); articles older than 30 days are skipped so a newly added feed does not pull its whole back-catalog
 3. Fetches full article content (not just the RSS excerpt)
 4. Calls Claude to generate a structured summary, key takeaways, author attribution, and cross-links to existing notes
 5. Writes formatted markdown notes to `notes/{Feed Name}/` in the repo
@@ -56,6 +56,10 @@ Runs Fridays at 9am ET via GitHub Actions. The workflow runs `ingest_cloud.py` f
 7. Sends a styled HTML digest email via Resend
 
 This caching approach means the digest typically makes 2 Claude API calls (ranking and trending blurbs) instead of ~20 (one per article).
+
+#### Email delivery
+
+Recipients are the `digest_email.to` list in `config.json` plus every non-unsubscribed contact in the Resend audience (`RESEND_AUDIENCE_ID`). Each email gets its own unsubscribe link, and the footer carries a signup link for forwarded copies. The latest digest is also saved as `notes/Digests/latest-digest.json`, which the signup handler in the `nyxworks.ai` repo uses to send a welcome digest to new subscribers. If the weekly workflow fails, a second job emails an alert with a link to the run logs.
 
 ### Local Vault Sync (`sync_to_vault.sh`)
 
@@ -128,6 +132,19 @@ The prompt receives the overview sections from the previous three digests so it 
 
 ## Project Structure
 
+```
+ingest_cloud.py        Daily ingest: fetch feeds, summarize new articles, write notes
+digest_cloud.py        Weekly digest: rank the week's articles, build and send the email
+backfill_notes.py      One-off: generate notes for seen articles that have none (safe to re-run)
+config.json            Feeds, model, vault path, email settings
+notes/<Feed Name>/     Generated article notes (Obsidian markdown), one folder per feed
+notes/Digests/         Weekly digest markdown plus latest-digest.json
+seen/seen_*.json       Per-feed trackers of already-processed article URLs
+tests/                 pytest suite for both scripts
+sync_to_vault.sh       Local launchd job: git pull, then rsync notes into the vault
+.github/workflows/     daily-ingest.yml and weekly-digest.yml
+```
+
 The repo doubles as the data store — `notes/` and `seen/` contain generated content and are committed by GitHub Actions on each run. This is a deliberate design choice: the repo is the single source of truth, and the local sync script simply pulls it.
 
 ## Setup
@@ -172,11 +189,12 @@ cp .env.example .env
 # Add your Resend API key (optional, for email digest)
 ```
 
-2. Edit `config.json` to set your vault path and configure feeds.
+2. Edit `config.json`: set `vault_path`, configure `feeds`, and fill in the `digest_email` block (`from` address, optional fixed `to` list, Resend audience ID, and the signup URL used in the footer). Set `digest_email.enabled` to `false` to skip sending entirely.
 
 3. Add repository secrets in GitHub **Settings > Secrets and variables > Actions**:
    - `ANTHROPIC_API_KEY`
    - `RESEND_API_KEY`
+   - `RESEND_AUDIENCE_ID`
 
 ### Local Vault Sync
 
@@ -224,7 +242,7 @@ Add any Substack newsletter (or any RSS feed) to the `feeds` array in `config.js
 
 ## Testing
 
-Three layers, from cheapest to most realistic. Run the unit tests before every deploy.
+Four layers, from cheapest to most realistic. Run the unit tests before every deploy.
 
 ### 1. Unit tests
 
@@ -247,7 +265,15 @@ This writes `notes/Digests/<date> PM Pulse Weekly Digest.md` and rewrites `notes
 git checkout -- notes/Digests/latest-digest.json
 ```
 
-### 3. End-to-end test email from a branch
+### 3. Send a real email to yourself only
+
+```bash
+python3 digest_cloud.py --to you@example.com
+```
+
+The `--to` flag replaces the recipient list and skips the Resend audience. This is what the workflow's `test_to` input calls under the hood.
+
+### 4. End-to-end test email from a branch
 
 The weekly workflow accepts a `test_to` input. When set, it sends only to those addresses, skips the Resend audience, and skips the commit step, so it is safe to run against a feature branch. Push the branch, then:
 
