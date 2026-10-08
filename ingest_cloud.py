@@ -186,7 +186,7 @@ Return ONLY valid JSON, no markdown fences or other text."""
     log.info(f"Generating summary for: {title}")
     response = client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=16000,
         output_config={"effort": "low"},
         messages=[{"role": "user", "content": prompt}],
     )

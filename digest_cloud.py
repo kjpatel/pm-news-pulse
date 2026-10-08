@@ -256,7 +256,7 @@ Return ONLY valid JSON, no markdown fences or other text."""
 
     response = client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=16000,
         output_config={"effort": "low"},
         messages=[{"role": "user", "content": prompt}],
     )
@@ -424,7 +424,7 @@ Sort articles by rank (1 first). Return ONLY valid JSON, no markdown fences or o
     log.info(f"Ranking {len(articles)} articles...")
     response = client.messages.create(
         model=model,
-        max_tokens=8192,
+        max_tokens=16000,
         output_config={"effort": "low"},
         messages=[{"role": "user", "content": prompt}],
     )
@@ -565,7 +565,7 @@ Return ONLY valid JSON, no markdown fences or other text."""
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=16000,
             output_config={"effort": "low"},
             messages=[{"role": "user", "content": prompt}],
         )
